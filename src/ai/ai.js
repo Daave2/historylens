@@ -1,58 +1,42 @@
 /**
  * OpenAI API client for HistoryLens
- * Handles auto-summarising research and generating speculative notes.
+ * Calls are proxied through a Supabase Edge Function so the API key stays server-side.
  */
 
-const API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
-const MODEL = 'gpt-4o-mini'; // Fast, cheap, capable model
+import { supabase } from '../data/supabaseClient.js';
+
+// Check if the Supabase project has the Edge Function deployed
+let _aiAvailable = null;
 
 export function hasAiAccess() {
-    return !!API_KEY;
+    // We assume AI is available if Supabase is configured.
+    // The Edge Function will return an error if the key isn't set server-side.
+    return true;
 }
 
 /**
- * Call the OpenAI Chat Completions API.
- * Uses strict JSON mode for guaranteed output structure.
+ * Call the OpenAI Chat Completions API via the Supabase Edge Function proxy.
  */
 async function callOpenAI(systemPrompt, userPrompt, jsonSchema) {
-    if (!API_KEY) throw new Error('No OpenAI API key found');
+    const { data: sessionData } = await supabase.auth.getSession();
 
-    const requestBody = {
-        model: MODEL,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-        ]
-    };
-
-    // If a JSON schema is provided, use structured outputs
-    if (jsonSchema) {
-        requestBody.response_format = {
-            type: 'json_schema',
-            json_schema: {
-                name: 'historylens_response',
-                schema: jsonSchema,
-                strict: true
-            }
-        };
-    }
-
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_KEY}`
-        },
-        body: JSON.stringify(requestBody)
+    const res = await supabase.functions.invoke('ai-proxy', {
+        body: {
+            systemPrompt,
+            userPrompt,
+            jsonSchema,
+            model: 'gpt-4o-mini'
+        }
     });
 
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `OpenAI API Error: ${res.status}`);
+    if (res.error) {
+        throw new Error(res.error.message || 'AI proxy call failed');
     }
 
-    const data = await res.json();
-    const content = data.choices[0].message.content;
+    const content = res.data?.content;
+    if (!content) {
+        throw new Error('No content in AI response');
+    }
 
     if (jsonSchema) {
         try {
