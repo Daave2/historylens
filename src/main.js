@@ -135,8 +135,8 @@ async function initProjectView(project) {
     }
   });
 
-  // Historic map overlays
-  const mapOverlay = new MapOverlay(mapView.map);
+  // Historic map overlays (Hidden for now as they require a MapTiler API key)
+  // const mapOverlay = new MapOverlay(mapView.map);
 
   // Hover card
   const hoverCard = new HoverCard();
