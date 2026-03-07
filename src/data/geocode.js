@@ -356,7 +356,7 @@ function extractEarliestYear(text) {
  * Combine all sources into a unified place info object.
  * Always returns something useful, even for an unremarkable house.
  */
-export async function lookupPlaceInfo(lat, lng) {
+export async function lookupPlaceInfo(lat, lng, customName = '') {
     // Phase 1: Geocode + Overpass (parallel)
     const [geocode, nearby] = await Promise.all([
         reverseGeocode(lat, lng),
@@ -379,7 +379,9 @@ export async function lookupPlaceInfo(lat, lng) {
 
     // Determine the best name
     const namedFeature = nearby.find(f => f.name);
-    if (namedFeature?.name) {
+    if (customName) {
+        info.suggestedName = customName;
+    } else if (namedFeature?.name) {
         info.suggestedName = namedFeature.name;
     } else if (geocode.placeName) {
         info.suggestedName = geocode.placeName;
@@ -390,15 +392,17 @@ export async function lookupPlaceInfo(lat, lng) {
     // Category
     info.suggestedCategory = detectCategory(geocode, nearby);
 
-    // Build entries from OSM/Overpass
-    info.autoEntries = buildAutoEntries(geocode, nearby);
+    // Build entries from OSM/Overpass (filtered by customName to reduce noise)
+    info.autoEntries = buildAutoEntries(geocode, nearby, customName);
 
     // Phase 2: Wikipedia + building estimation (parallel)
     // Build search queries from location context. Keep it highly specific to avoid generic city-wide noise.
     const searchQueries = [];
-    if (geocode.road && geocode.city) searchQueries.push(`${geocode.road} ${geocode.city}`);
-    if (geocode.suburb && geocode.city) searchQueries.push(`${geocode.suburb} ${geocode.city}`);
-    // Removed general "City history" query to reduce noise
+    const targetName = customName || info.suggestedName;
+
+    if (targetName && geocode.city) searchQueries.push(`${targetName} ${geocode.city}`);
+    if (targetName && geocode.suburb) searchQueries.push(`${targetName} ${geocode.suburb}`);
+    if (geocode.road && geocode.city && !targetName.includes(geocode.road)) searchQueries.push(`${geocode.road} ${geocode.city}`);
 
     // Linked Wikipedia article (direct link from OSM)
     const directWikiRef = geocode.wikipedia || nearby.find(f => f.wikipedia)?.wikipedia;
@@ -411,10 +415,11 @@ export async function lookupPlaceInfo(lat, lng) {
     // Get full summaries for the most relevant search results
     const wikiSummaries = await getWikipediaSummaries(
         wikiSearchResults.filter(r =>
-            // Filter for relevant results (not just random matches)
+            // Filter for relevant results (must match city/road/name to avoid random noise)
             r.snippet.toLowerCase().includes((geocode.city || '').toLowerCase()) ||
             r.snippet.toLowerCase().includes((geocode.road || '').toLowerCase()) ||
-            r.snippet.toLowerCase().includes((geocode.suburb || '').toLowerCase())
+            r.snippet.toLowerCase().includes((geocode.suburb || '').toLowerCase()) ||
+            r.snippet.toLowerCase().includes((targetName || '').toLowerCase())
         )
     );
 
@@ -492,13 +497,16 @@ function detectCategory(geocode, nearby) {
     return 'residential';
 }
 
-function buildAutoEntries(geocode, nearby) {
+function buildAutoEntries(geocode, nearby, customName = '') {
     const entries = [];
 
-    // From geocode extra data
+    // The target name to match against (either user-provided or from geocode)
+    const targetName = (customName || geocode.placeName || '').toLowerCase().trim();
+
+    // From geocode extra data (this is the specific property we clicked on)
     if (geocode.description || geocode.startDate) {
         entries.push({
-            title: geocode.placeName || geocode.displayName || 'This location',
+            title: customName || geocode.placeName || geocode.displayName || 'This location',
             summary: buildSummary(geocode),
             source: geocode.website || 'OpenStreetMap',
             sourceType: 'archive',
@@ -508,33 +516,41 @@ function buildAutoEntries(geocode, nearby) {
         });
     }
 
-    // From nearby features
-    for (const feat of nearby) {
-        if (!feat.name && !feat.historic && !feat.description) continue;
-        if (feat.name === geocode.placeName) continue;
+    // From nearby features — ONLY include if it matches the target name exactly 
+    // This removes the "90% irrelevant spam" (bus stops, other random shops)
+    if (targetName) {
+        for (const feat of nearby) {
+            if (!feat.name) continue;
 
-        const summary = [];
-        if (feat.description) summary.push(feat.description);
-        if (feat.historic) summary.push(`Historic ${feat.historic}.`);
-        if (feat.architect) summary.push(`Designed by ${feat.architect}.`);
-        if (feat.style) summary.push(`Architectural style: ${feat.style}.`);
-        if (feat.denomination) summary.push(`${feat.denomination} ${feat.religion || ''}.`.trim());
-        if (feat.building && feat.building !== 'yes') summary.push(`Building type: ${feat.building}.`);
-        if (feat.levels) summary.push(`${feat.levels} storey(s).`);
-        if (feat.material) summary.push(`Built with ${feat.material}.`);
-        if (feat.cuisine) summary.push(`Cuisine: ${feat.cuisine}.`);
-        if (feat.operator) summary.push(`Operated by ${feat.operator}.`);
+            // Skip if it's literally the geocode object we already processed above
+            if (feat.name === geocode.placeName) continue;
 
-        if (summary.length > 0 || feat.name) {
-            entries.push({
-                title: feat.name || `${feat.historic || feat.amenity || feat.building || 'Feature'}`,
-                summary: summary.join(' ') || `${feat.name || 'Unnamed feature'} located at this site.`,
-                source: feat.website || feat.wikipedia || 'OpenStreetMap',
-                sourceType: feat.historic ? 'archive' : 'user',
-                confidence: feat.historic || feat.heritage ? 'verified' : 'likely',
-                yearStart: parseYear(feat.startDate) || null,
-                yearEnd: parseYear(feat.endDate) || null
-            });
+            // Only include if the name is a very close match
+            if (feat.name.toLowerCase().trim().includes(targetName) || targetName.includes(feat.name.toLowerCase().trim())) {
+                const summary = [];
+                if (feat.description) summary.push(feat.description);
+                if (feat.historic) summary.push(`Historic ${feat.historic}.`);
+                if (feat.architect) summary.push(`Designed by ${feat.architect}.`);
+                if (feat.style) summary.push(`Architectural style: ${feat.style}.`);
+                if (feat.denomination) summary.push(`${feat.denomination} ${feat.religion || ''}.`.trim());
+                if (feat.building && feat.building !== 'yes') summary.push(`Building type: ${feat.building}.`);
+                if (feat.levels) summary.push(`${feat.levels} storey(s).`);
+                if (feat.material) summary.push(`Built with ${feat.material}.`);
+                if (feat.cuisine) summary.push(`Cuisine: ${feat.cuisine}.`);
+                if (feat.operator) summary.push(`Operated by ${feat.operator}.`);
+
+                if (summary.length > 0 || feat.name) {
+                    entries.push({
+                        title: feat.name,
+                        summary: summary.join(' ') || `${feat.name} located at this site.`,
+                        source: feat.website || feat.wikipedia || 'OpenStreetMap',
+                        sourceType: feat.historic ? 'archive' : 'user',
+                        confidence: feat.historic || feat.heritage ? 'verified' : 'likely',
+                        yearStart: parseYear(feat.startDate) || null,
+                        yearEnd: parseYear(feat.endDate) || null
+                    });
+                }
+            }
         }
     }
 

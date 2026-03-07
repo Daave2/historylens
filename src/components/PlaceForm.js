@@ -48,7 +48,12 @@ export default class PlaceForm {
 
       <div class="form-group">
         <label class="form-label">Place Name</label>
-        <input class="form-input" id="pf-name" type="text" placeholder="Will auto-fill from search or map click" />
+        <div style="display: flex; gap: var(--space-xs);">
+          <input class="form-input" id="pf-name" type="text" placeholder="Will auto-fill from search or map click" style="flex: 1;" />
+          <button class="icon-btn" id="pf-rescan" title="Re-scan history using this exact name" style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: 0 var(--space-sm);">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
         <span class="form-hint" id="pf-address-hint" style="color: var(--accent);"></span>
       </div>
 
@@ -86,6 +91,17 @@ export default class PlaceForm {
     this.content.querySelector('#pf-name').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.save();
     });
+
+    const rescanBtn = this.content.querySelector('#pf-rescan');
+    if (rescanBtn) {
+      rescanBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const customName = this.content.querySelector('#pf-name').value.trim();
+        if (this.pendingLatLng) {
+          this.runLookup(this.pendingLatLng.lat, this.pendingLatLng.lng, customName);
+        }
+      });
+    }
 
     // Address search with debounce
     const searchInput = this.content.querySelector('#pf-search');
