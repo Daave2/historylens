@@ -7,39 +7,45 @@ import L from 'leaflet';
  * (NLS) tile servers. Supports opacity control and era switching.
  */
 
+// Note: NLS has moved their free tile layers to MapTiler. 
+// This requires a free MapTiler API key (https://www.maptiler.com/cloud/pricing/),
+// which you can add to your .env file as VITE_MAPTILER_KEY.
+
+const mapTilerKey = import.meta.env.VITE_MAPTILER_KEY || '';
+
 const HISTORIC_LAYERS = [
     {
         id: 'os-1890s',
         name: '1890s OS Map',
         label: '1890s',
         era: '1888–1913',
-        url: 'https://mapseries-tilesets.s3.amazonaws.com/25_inch/england_and_wales/{z}/{x}/{y}.png',
+        url: `https://api.maptiler.com/tiles/uk-osgb10k1888/{z}/{x}/{y}.png?key=${mapTilerKey}`,
         attribution: '© <a href="https://maps.nls.uk">NLS</a>',
         minZoom: 12,
         maxZoom: 18,
-        description: 'Ordnance Survey 25-inch, 1st & 2nd edition'
+        description: 'Ordnance Survey 6-inch, 1st edition'
     },
     {
         id: 'os-1930s',
         name: '1930s OS Map',
         label: '1930s',
         era: '1920–1947',
-        url: 'https://mapseries-tilesets.s3.amazonaws.com/os/6inchfirst/{z}/{x}/{y}.png',
+        url: `https://api.maptiler.com/tiles/uk-osgb25k1937/{z}/{x}/{y}.png?key=${mapTilerKey}`,
         attribution: '© <a href="https://maps.nls.uk">NLS</a>',
         minZoom: 10,
         maxZoom: 17,
-        description: 'Ordnance Survey 6-inch, County Series'
+        description: 'Ordnance Survey 1:25,000'
     },
     {
         id: 'os-1960s',
         name: '1960s OS Map',
         label: '1960s',
         era: '1955–1972',
-        url: 'https://mapseries-tilesets.s3.amazonaws.com/os/1250_1967/{z}/{x}/{y}.png',
+        url: `https://api.maptiler.com/tiles/uk-osgb63k1955/{z}/{x}/{y}.png?key=${mapTilerKey}`,
         attribution: '© <a href="https://maps.nls.uk">NLS</a>',
-        minZoom: 14,
-        maxZoom: 20,
-        description: 'Ordnance Survey 1:1,250 National Grid'
+        minZoom: 10,
+        maxZoom: 18,
+        description: 'Ordnance Survey 1-inch, 7th series'
     }
 ];
 
@@ -179,6 +185,14 @@ export default class MapOverlay {
         // Add new
         const config = HISTORIC_LAYERS.find(l => l.id === layerId);
         if (!config) return;
+
+        // If no API key is provided, show a helpful message and abort
+        if (!mapTilerKey) {
+            const hint = this.panel.querySelector('#overlay-hint');
+            hint.innerHTML = '<span style="color:var(--status-danger);">⚠️ Missing MapTiler API Key in .env</span><br/>NLS maps now require a free <a href="https://www.maptiler.com/cloud/pricing/" target="_blank" style="color:var(--accent);">MapTiler account</a>.';
+            this.updateButtonStyles();
+            return;
+        }
 
         const tileLayer = L.tileLayer(config.url, {
             attribution: config.attribution,
