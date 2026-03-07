@@ -49,6 +49,7 @@ export default class PlaceForm {
       <div class="form-group">
         <label class="form-label">Place Name</label>
         <div style="display: flex; gap: var(--space-xs);">
+          <select class="form-select" id="pf-name-select" style="flex: 1; display: none;"></select>
           <input class="form-input" id="pf-name" type="text" placeholder="Will auto-fill from search or map click" style="flex: 1;" />
           <button class="icon-btn" id="pf-rescan" title="Re-scan history using this exact name" style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: 0 var(--space-sm);">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -65,7 +66,9 @@ export default class PlaceForm {
           <option value="landmark">⭐ Landmark</option>
           <option value="natural">🌳 Natural Feature</option>
           <option value="infrastructure">🏗️ Infrastructure</option>
+          <option value="other">Other...</option>
         </select>
+        <input class="form-input" id="pf-category-custom" type="text" placeholder="e.g. Pub, Church, Market" style="display: none; margin-top: var(--space-xs);" />
       </div>
 
       <div class="form-group">
@@ -88,6 +91,32 @@ export default class PlaceForm {
     // Wire events
     this.content.querySelector('#pf-cancel').addEventListener('click', () => this.close());
     this.content.querySelector('#pf-save').addEventListener('click', () => this.save());
+
+    // Custom name toggle
+    const nameSelect = this.content.querySelector('#pf-name-select');
+    const nameInput = this.content.querySelector('#pf-name');
+    nameSelect.addEventListener('change', () => {
+      if (nameSelect.value === 'other') {
+        nameSelect.style.display = 'none';
+        nameInput.style.display = 'block';
+        nameInput.value = '';
+        nameInput.focus();
+      } else {
+        nameInput.value = nameSelect.value;
+      }
+    });
+
+    // Custom category toggle
+    const catSelect = this.content.querySelector('#pf-category');
+    const customCatInput = this.content.querySelector('#pf-category-custom');
+    catSelect.addEventListener('change', () => {
+      if (catSelect.value === 'other') {
+        customCatInput.style.display = 'block';
+        customCatInput.focus();
+      } else {
+        customCatInput.style.display = 'none';
+      }
+    });
     this.content.querySelector('#pf-name').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.save();
     });
@@ -241,11 +270,37 @@ export default class PlaceForm {
     this.lookupResult = info;
 
     if (info.address) {
-      // Pre-fill name only if empty
-      if (!nameInput.value && info.suggestedName) {
-        nameInput.value = info.suggestedName;
+      const nameSelect = this.content.querySelector('#pf-name-select');
+
+      // Setup Name Dropdown
+      if (info.suggestedNames && info.suggestedNames.length > 0) {
+        nameSelect.innerHTML = '';
+        info.suggestedNames.forEach(n => {
+          const opt = document.createElement('option');
+          opt.value = opt.textContent = n;
+          nameSelect.appendChild(opt);
+        });
+
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = '──────────';
+        nameSelect.appendChild(sep);
+
+        const otherOpt = document.createElement('option');
+        otherOpt.value = 'other';
+        otherOpt.textContent = 'Other...';
+        nameSelect.appendChild(otherOpt);
+
+        nameSelect.style.display = 'block';
+        nameInput.style.display = 'none';
+        nameSelect.value = info.suggestedNames[0];
+        nameInput.value = info.suggestedNames[0]; // keep hidden input synced for save
+      } else {
+        nameSelect.style.display = 'none';
+        nameInput.style.display = 'block';
+        if (!nameInput.value && info.suggestedName) nameInput.value = info.suggestedName;
+        nameInput.placeholder = 'e.g. 4 Gordon Street';
       }
-      nameInput.placeholder = 'e.g. 4 Gordon Street';
 
       // Address hint
       const addr = info.address;
@@ -254,7 +309,41 @@ export default class PlaceForm {
       hintEl.title = addr.fullAddress;
 
       // Category
-      catSelect.value = info.suggestedCategory;
+      // Rebuild the category dropdown with suggested options at the top
+      catSelect.innerHTML = '';
+      if (info.suggestedCategories && info.suggestedCategories.length > 0) {
+        info.suggestedCategories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = opt.textContent = cat;
+          catSelect.appendChild(opt);
+        });
+
+        // Add a separator
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = '──────────';
+        catSelect.appendChild(sep);
+      }
+
+      // Default options
+      catSelect.innerHTML += `
+        <option value="residential">🏠 Residential</option>
+        <option value="commercial">🏪 Commercial</option>
+        <option value="landmark">⭐ Landmark</option>
+        <option value="natural">🌳 Natural Feature</option>
+        <option value="infrastructure">🏗️ Infrastructure</option>
+        <option value="other">Other...</option>
+      `;
+
+      if (info.suggestedCategories && info.suggestedCategories.length > 0) {
+        catSelect.value = info.suggestedCategories[0];
+      } else {
+        catSelect.value = 'residential';
+      }
+
+      // hide the custom input explicitly just in case
+      this.content.querySelector('#pf-category-custom').style.display = 'none';
+
     } else {
       hintEl.textContent = '';
       nameInput.placeholder = 'e.g. 4 Gordon Street';
@@ -350,8 +439,18 @@ export default class PlaceForm {
   }
 
   save() {
-    const name = this.content.querySelector('#pf-name').value.trim();
-    const category = this.content.querySelector('#pf-category').value;
+    const nameSelect = this.content.querySelector('#pf-name-select');
+    const nameInput = this.content.querySelector('#pf-name');
+
+    let name = nameInput.value.trim();
+    if (nameSelect.style.display !== 'none' && nameSelect.value !== 'other') {
+      name = nameSelect.value.trim();
+    }
+
+    let category = this.content.querySelector('#pf-category').value;
+    if (category === 'other') {
+      category = this.content.querySelector('#pf-category-custom').value.trim() || 'other';
+    }
     const lat = parseFloat(this.content.querySelector('#pf-lat').value);
     const lng = parseFloat(this.content.querySelector('#pf-lng').value);
 

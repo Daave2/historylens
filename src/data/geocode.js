@@ -367,7 +367,8 @@ export async function lookupPlaceInfo(lat, lng, customName = '') {
         address: geocode,
         features: nearby,
         suggestedName: '',
-        suggestedCategory: 'residential',
+        suggestedNames: [],
+        suggestedCategories: [],
         autoEntries: [],
         wikiSummary: null,
         wikiArticles: [],
@@ -377,20 +378,35 @@ export async function lookupPlaceInfo(lat, lng, customName = '') {
 
     if (!geocode) return info;
 
-    // Determine the best name
+    // Determine the best name and alternative names
+    const names = [];
+    if (customName) names.push(customName);
+
     const namedFeature = nearby.find(f => f.name);
-    if (customName) {
-        info.suggestedName = customName;
-    } else if (namedFeature?.name) {
-        info.suggestedName = namedFeature.name;
-    } else if (geocode.placeName) {
-        info.suggestedName = geocode.placeName;
-    } else {
-        info.suggestedName = geocode.displayName;
+    if (namedFeature?.name) names.push(namedFeature.name);
+
+    if (geocode.placeName) names.push(geocode.placeName);
+
+    // Address-based names
+    if (geocode.road) {
+        if (geocode.houseNumber) {
+            names.push(`${geocode.houseNumber} ${geocode.road}`);
+        }
+        names.push(geocode.road);
     }
 
-    // Category
-    info.suggestedCategory = detectCategory(geocode, nearby);
+    // Short display name fallback
+    if (geocode.displayName) {
+        const parts = geocode.displayName.split(',').map(p => p.trim());
+        if (parts.length > 0) names.push(parts.slice(0, 3).join(', '));
+    }
+
+    // Clean up and deduplicate names
+    info.suggestedNames = [...new Set(names.filter(n => n && n.length > 0))];
+    info.suggestedName = info.suggestedNames[0] || '';
+
+    // Categories
+    info.suggestedCategories = detectCategory(geocode, nearby);
 
     // Build entries from OSM/Overpass (filtered by customName to reduce noise)
     info.autoEntries = buildAutoEntries(geocode, nearby, customName);
@@ -487,14 +503,21 @@ export async function lookupPlaceInfo(lat, lng, customName = '') {
 // ── Helpers ───────────────────────────────────────────────
 
 function detectCategory(geocode, nearby) {
-    const types = [geocode.type, geocode.category, ...nearby.map(f => f.amenity), ...nearby.map(f => f.building)];
-    const allTypes = types.join(' ').toLowerCase();
+    // Collect all raw types/amenities related to this location
+    const rawTypes = [
+        geocode.type,
+        geocode.category,
+        ...nearby.map(f => f.amenity),
+        ...nearby.map(f => f.building)
+    ];
 
-    if (/shop|retail|restaurant|cafe|pub|bar|bank|office|commercial|supermarket|pharmacy|hotel|guest_house/.test(allTypes)) return 'commercial';
-    if (/church|monument|memorial|castle|museum|theatre|cinema|historic|heritage|ruins|statue|library/.test(allTypes)) return 'landmark';
-    if (/park|garden|wood|water|beach|cliff|natural|tree|wetland/.test(allTypes)) return 'natural';
-    if (/bridge|station|railway|highway|pier|road|bus_stop|parking|school|hospital|fire_station|police/.test(allTypes)) return 'infrastructure';
-    return 'residential';
+    const cleanTypes = rawTypes
+        .filter(t => t && typeof t === 'string' && t !== 'yes' && t.toLowerCase() !== 'unclassified')
+        .map(t => t.replace(/_/g, ' ')) // Convert guest_house to guest house
+        .map(t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()); // Title case
+
+    // Remove duplicates
+    return [...new Set(cleanTypes)].filter(t => t.length > 2);
 }
 
 function buildAutoEntries(geocode, nearby, customName = '') {
