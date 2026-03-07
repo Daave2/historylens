@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS places (
   name TEXT NOT NULL,
   lat DOUBLE PRECISION NOT NULL,
   lng DOUBLE PRECISION NOT NULL,
-  category TEXT DEFAULT 'residential' CHECK (category IN ('residential', 'commercial', 'landmark', 'natural', 'infrastructure')),
+  category TEXT DEFAULT 'residential',
   created_by UUID REFERENCES auth.users(id) DEFAULT auth.uid(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
