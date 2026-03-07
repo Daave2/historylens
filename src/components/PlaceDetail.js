@@ -65,7 +65,13 @@ export default class PlaceDetail {
           : `${entry.yearStart} – present`;
 
         const confClass = entry.confidence || 'likely';
-        const authorEmail = profiles[entry.createdBy] || 'Unknown User';
+
+        // Attribution logic
+        const profile = profiles[entry.createdBy];
+        let authorDisplay = 'Unknown User';
+        if (profile) {
+          authorDisplay = profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Unknown');
+        }
 
         timelineHtml += `
           <div class="timeline-entry" data-entry-id="${entry.id}">
@@ -77,7 +83,7 @@ export default class PlaceDetail {
             <div class="timeline-source">
               <span class="confidence-badge ${confClass}">${confClass}</span>
               ${entry.source ? `<span>· ${entry.source}</span>` : ''}
-              <span>· Added by ${authorEmail}</span>
+              <span>· Added by ${authorDisplay}</span>
               ${(!isReadOnly && (currentUserRole === 'owner' || currentUserRole === 'admin' || (currentUser && entry.createdBy === currentUser.id))) ? `
               <button class="icon-btn edit-entry-btn" data-entry-id="${entry.id}" title="Edit entry">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -93,7 +99,11 @@ export default class PlaceDetail {
       timelineHtml += '</div>';
     }
 
-    const placeAuthor = profiles[place.createdBy] || 'Unknown User';
+    const pProfile = profiles[place.createdBy];
+    let placeAuthor = 'Unknown User';
+    if (pProfile) {
+      placeAuthor = pProfile.display_name || (pProfile.email ? pProfile.email.split('@')[0] : 'Unknown');
+    }
 
     this.content.innerHTML = `
       <div class="place-detail-header">

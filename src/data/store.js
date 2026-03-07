@@ -154,10 +154,27 @@ export async function getUserRole(projectId) {
 export async function getProfiles(userIds) {
     if (!userIds || userIds.length === 0) return {};
     const uniqueIds = [...new Set(userIds.filter(Boolean))];
-    const { data } = await supabase.from('profiles').select('id, email').in('id', uniqueIds);
+    const { data } = await supabase.from('profiles').select('id, email, display_name, avatar_url').in('id', uniqueIds);
     const map = {};
-    (data || []).forEach(p => { map[p.id] = p.email; });
+    (data || []).forEach(p => {
+        map[p.id] = {
+            email: p.email,
+            display_name: p.display_name,
+            avatar_url: p.avatar_url
+        };
+    });
     return map;
+}
+
+export async function updateProfile(updates) {
+    const session = await getSession();
+    if (!session) throw new Error("Must be signed in");
+
+    const { error } = await supabase.from('profiles')
+        .update(updates)
+        .eq('id', session.user.id);
+
+    if (error) { console.error(error); throw error; }
 }
 
 export async function getProjectRoles(projectId) {

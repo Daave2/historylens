@@ -36,6 +36,8 @@
           <h1>History<span class="accent">Lens</span></h1>
         </div>
         <div style="display: flex; gap: var(--space-sm); align-items: center;">
+          <button id="btn-profile" class="btn btn-ghost"
+            style="display:none; font-size: var(--text-xs); padding: 4px 8px;">My Profile</button>
           <button id="btn-auth" class="btn btn-ghost" style="font-size: var(--text-xs); padding: 4px 8px;">Sign
             In</button>
           <button id="sidebar-toggle" class="icon-btn" aria-label="Toggle sidebar">
@@ -202,6 +204,18 @@
 
     <!-- Toast notifications -->
     <div id="toast-container"></div>
+  </div>
+
+  <!-- Profile Settings Modal -->
+  <div id="profile-modal" class="modal-overlay" style="display:none; z-index: 3000;">
+    <div class="modal glass-panel">
+      <button class="modal-close icon-btn" data-close="profile-modal">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+      </button>
+      <div id="profile-modal-content"></div>
+    </div>
   </div>
 
   <script type="module" src="/src/main.js"></script>

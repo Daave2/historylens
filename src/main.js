@@ -12,7 +12,9 @@ import {
   signOut,
   onAuthStateChange,
   getProject,
-  getUserRole
+  getUserRole,
+  updateProfile,
+  getProfiles
 } from './data/store.js';
 
 import { exportProject, importBundle, exportCSV, downloadFile, readFileAsJSON } from './data/io.js';
@@ -26,6 +28,7 @@ import PlaceForm from './components/PlaceForm.js';
 import EntryForm from './components/EntryForm.js';
 import MapOverlay from './components/MapOverlay.js';
 import AuthModal from './components/AuthModal.js';
+import ProfileModal from './components/ProfileModal.js';
 import Dashboard from './components/Dashboard.js';
 import CollaboratorsModal from './components/CollaboratorsModal.js';
 
@@ -37,7 +40,26 @@ let selectedYear = new Date().getFullYear();
 // ── Init ───────────────────────────────────────────────────
 async function init() {
   const authModal = new AuthModal();
+  const profileModal = new ProfileModal({
+    onSave: async (updates) => {
+      await updateProfile(updates);
+      // Refresh current user data specifically for the local cache
+      const updatedProfiles = await getProfiles([currentUser.id]);
+      if (updatedProfiles[currentUser.id]) {
+        currentUser = { ...currentUser, user_metadata: { ...currentUser.user_metadata, ...updates }, ...updatedProfiles[currentUser.id] };
+      }
+      updateAuthUI(currentUser);
+      showToast('Profile updated', 'success');
+
+      // If we're looking at a project, we might need to refresh attribution UI
+      if (window.dashboardComponent && !currentProject) {
+        window.dashboardComponent.show(currentUser);
+      }
+    }
+  });
+
   const authBtn = document.getElementById('btn-auth');
+  const profileBtn = document.getElementById('btn-profile');
 
   // Initialize Auth state
   const session = await getSession();
@@ -62,13 +84,24 @@ async function init() {
     }
   });
 
+  profileBtn.addEventListener('click', async () => {
+    if (!currentUser) return;
+
+    // Fetch latest profile details before showing
+    const profiles = await getProfiles([currentUser.id]);
+    const mergedProfile = { ...currentUser, ...(profiles[currentUser.id] || {}) };
+    profileModal.show(mergedProfile);
+  });
+
   function updateAuthUI(user) {
     if (user) {
       authBtn.textContent = 'Sign Out';
       authBtn.title = `Signed in as ${user.email}`;
+      profileBtn.style.display = 'block';
     } else {
       authBtn.textContent = 'Sign In';
       authBtn.title = '';
+      profileBtn.style.display = 'none';
     }
 
     // Refresh dashboard if it's currently showing
