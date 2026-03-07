@@ -70,7 +70,7 @@ const mapImage = (row) => ({
 
 // Helper for generating public URLs
 const getImageUrl = (path) => {
-    const { data } = supabase.storage.from('place-images').getPublicUrl(path);
+    const { data } = supabase.storage.from('entry_images').getPublicUrl(path);
     return data.publicUrl;
 };
 
@@ -335,10 +335,13 @@ export async function getProjectYearRange(projectId) {
 
 export async function addImage({ timeEntryId, blob, caption, yearTaken, credit }) {
     const ext = blob.type.split('/')[1] || 'jpg';
-    const filename = `${timeEntryId}/${Date.now()}.${ext}`;
+    const filename = `${timeEntryId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
 
-    const { error: storageError } = await supabase.storage.from('place-images').upload(filename, blob);
-    if (storageError) { console.error('Upload error', storageError); return null; }
+    const { error: storageError } = await supabase.storage.from('entry_images').upload(filename, blob, {
+        cacheControl: '3600',
+        upsert: false
+    });
+    if (storageError) { console.error('Upload error', storageError); throw storageError; }
 
     const { data, error } = await supabase.from('images').insert({
         time_entry_id: timeEntryId,
@@ -365,7 +368,7 @@ export async function getImagesForEntry(timeEntryId) {
 
 export async function deleteImage(id) {
     const { data } = await supabase.from('images').select('storage_path').eq('id', id).single();
-    if (data) await supabase.storage.from('place-images').remove([data.storage_path]);
+    if (data) await supabase.storage.from('entry_images').remove([data.storage_path]);
     const { error } = await supabase.from('images').delete().eq('id', id);
     if (error) console.error(error);
 }
@@ -383,3 +386,4 @@ export async function getBestImageForYear(placeId, year) {
     allImages.sort((a, b) => Math.abs(a.effectiveYear - year) - Math.abs(b.effectiveYear - year));
     return allImages[0];
 }
+
