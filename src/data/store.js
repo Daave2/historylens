@@ -151,14 +151,28 @@ export async function getUserRole(projectId) {
     return data ? data.role : null;
 }
 
+export async function getProfiles(userIds) {
+    if (!userIds || userIds.length === 0) return {};
+    const uniqueIds = [...new Set(userIds.filter(Boolean))];
+    const { data } = await supabase.from('profiles').select('id, email').in('id', uniqueIds);
+    const map = {};
+    (data || []).forEach(p => { map[p.id] = p.email; });
+    return map;
+}
+
 export async function getProjectRoles(projectId) {
-    const { data, error } = await supabase.from('project_roles')
-        .select('id, project_id, user_id, role, created_at, profiles!inner(email)')
+    const { data: roles, error } = await supabase.from('project_roles')
+        .select('id, project_id, user_id, role, created_at')
         .eq('project_id', projectId)
         .order('created_at', { ascending: false });
 
     if (error) { console.error(error); throw error; }
-    return data.map(r => ({ ...r, email: r.profiles?.email || 'Unknown User' }));
+
+    // Look up emails separately to avoid FK join issues
+    const userIds = roles.map(r => r.user_id);
+    const emailMap = await getProfiles(userIds);
+
+    return roles.map(r => ({ ...r, email: emailMap[r.user_id] || 'Unknown User' }));
 }
 
 export async function requestAccess(projectId) {

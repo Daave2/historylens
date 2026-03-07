@@ -189,6 +189,19 @@ async function initProjectView(project) {
       collabModal.showManage(project.id, currentUserRole);
     },
     onRequestAccess: () => {
+      if (!currentUser) {
+        showToast('Please sign in first to request access', 'info');
+        const authModal = new AuthModal();
+        authModal.show({
+          onSuccess: () => {
+            const collabModal = new CollaboratorsModal();
+            collabModal.showRequestAccess(project.id, () => {
+              showToast('Access request sent!', 'success');
+            });
+          }
+        });
+        return;
+      }
       const collabModal = new CollaboratorsModal();
       collabModal.showRequestAccess(project.id, () => {
         showToast('Access request sent!', 'success');

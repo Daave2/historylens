@@ -1,4 +1,4 @@
-import { getTimeEntriesForPlace, getImagesForEntry, deleteTimeEntry, deletePlace, createTimeEntry } from '../data/store.js';
+import { getTimeEntriesForPlace, getImagesForEntry, deleteTimeEntry, deletePlace, createTimeEntry, getProfiles } from '../data/store.js';
 import { hasAiAccess, generateSpeculativeContext } from '../ai/ai.js';
 
 export default class PlaceDetail {
@@ -21,6 +21,10 @@ export default class PlaceDetail {
   async show(place, isReadOnly = false, currentUser = null, currentUserRole = null) {
     this.place = place;
     const entries = await getTimeEntriesForPlace(place.id);
+
+    // Fetch user profiles for attribution
+    const userIds = [place.createdBy, ...entries.map(e => e.createdBy)];
+    const profiles = await getProfiles(userIds);
 
     const catColour = {
       residential: '#a78bfa', commercial: '#f59e0b', landmark: '#f472b6',
@@ -61,6 +65,7 @@ export default class PlaceDetail {
           : `${entry.yearStart} – present`;
 
         const confClass = entry.confidence || 'likely';
+        const authorEmail = profiles[entry.createdBy] || 'Unknown User';
 
         timelineHtml += `
           <div class="timeline-entry" data-entry-id="${entry.id}">
@@ -72,6 +77,7 @@ export default class PlaceDetail {
             <div class="timeline-source">
               <span class="confidence-badge ${confClass}">${confClass}</span>
               ${entry.source ? `<span>· ${entry.source}</span>` : ''}
+              <span>· Added by ${authorEmail}</span>
               ${(!isReadOnly && (currentUserRole === 'owner' || currentUserRole === 'admin' || (currentUser && entry.createdBy === currentUser.id))) ? `
               <button class="icon-btn edit-entry-btn" data-entry-id="${entry.id}" title="Edit entry">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -87,6 +93,8 @@ export default class PlaceDetail {
       timelineHtml += '</div>';
     }
 
+    const placeAuthor = profiles[place.createdBy] || 'Unknown User';
+
     this.content.innerHTML = `
       <div class="place-detail-header">
         <div>
@@ -97,6 +105,9 @@ export default class PlaceDetail {
           <span style="font-size: var(--text-xs); color: var(--text-muted); margin-left: var(--space-sm);">
             ${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}
           </span>
+          <div style="font-size: var(--text-xs); color: var(--text-secondary); margin-top: var(--space-xs);">
+            Added by ${placeAuthor} on ${place.createdAt.toLocaleDateString()}
+          </div>
         </div>
       </div>
 
