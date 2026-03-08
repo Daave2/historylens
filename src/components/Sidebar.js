@@ -102,9 +102,12 @@ export default class Sidebar {
         const cat = this.categoryFilter ? this.categoryFilter.value : '';
 
         const filtered = this.places.filter(p => {
-            const matchesQuery = !query || p.name.toLowerCase().includes(query) || p.category.toLowerCase().includes(query);
+            const pName = p.name || '';
+            const pCatOriginal = p.category || '';
+            const matchesQuery = !query || pName.toLowerCase().includes(query) || pCatOriginal.toLowerCase().includes(query);
+
             // Allow matching "other" categories by checking if it's not one of our standard ones
-            let pCat = p.category.toLowerCase();
+            let pCat = pCatOriginal.toLowerCase();
             const standardCats = ['residential', 'commercial', 'landmark', 'natural', 'infrastructure'];
             if (cat === 'other') {
                 pCat = standardCats.includes(pCat) ? 'standard' : 'other';

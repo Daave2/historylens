@@ -14,7 +14,8 @@ import {
   getProject,
   getUserRole,
   updateProfile,
-  getProfiles
+  getProfiles,
+  exportProjectGeoJSON
 } from './data/store.js';
 
 import { exportProject, importBundle, exportCSV, downloadFile, readFileAsJSON } from './data/io.js';
@@ -211,10 +212,10 @@ async function initProjectView(project) {
     },
     onExport: async () => {
       try {
-        const bundle = await exportProject(project.id);
-        const filename = `${project.name.replace(/\s+/g, '-').toLowerCase()}.historylens.json`;
-        downloadFile(bundle, filename);
-        showToast('Project exported successfully', 'success');
+        const geojson = await exportProjectGeoJSON(project.id);
+        const filename = `${project.name.replace(/\s+/g, '-').toLowerCase()}.geojson`;
+        downloadFile(geojson, filename, 'application/geo+json');
+        showToast('Project exported as GeoJSON successfully', 'success');
       } catch (err) {
         showToast('Export failed: ' + err.message, 'error');
       }

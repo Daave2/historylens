@@ -420,3 +420,58 @@ export async function addComment(placeId, content) {
     }
     return data;
 }
+
+// ── Export ──────────────────────────────────────────────────
+
+export async function exportProjectGeoJSON(projectId) {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const places = await getPlacesByProject(projectId);
+    const features = [];
+
+    for (const place of places) {
+        const entries = await getTimeEntriesForPlace(place.id);
+        const entriesWithImages = [];
+
+        for (const entry of entries) {
+            const images = await getImagesForEntry(entry.id);
+            entriesWithImages.push({
+                ...entry,
+                images: images.map(img => ({
+                    id: img.id,
+                    caption: img.caption,
+                    yearTaken: img.yearTaken,
+                    credit: img.credit,
+                    publicUrl: img.publicUrl
+                }))
+            });
+        }
+
+        features.push({
+            type: "Feature",
+            geometry: {
+                type: "Point",
+                coordinates: [place.lng, place.lat]
+            },
+            properties: {
+                id: place.id,
+                name: place.name,
+                category: place.category,
+                createdAt: place.createdAt,
+                entries: entriesWithImages
+            }
+        });
+    }
+
+    return {
+        type: "FeatureCollection",
+        metadata: {
+            projectId: project.id,
+            name: project.name,
+            description: project.description,
+            exportedAt: new Date().toISOString()
+        },
+        features
+    };
+}
