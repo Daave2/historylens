@@ -107,9 +107,24 @@ async function init() {
       profileBtn.style.display = 'none';
     }
 
-    // Refresh dashboard if it's currently showing
+    // Refresh dashboard or landing based on state
     if (!currentProject && window.dashboardComponent) {
-      window.dashboardComponent.show(user);
+      const landingEl = document.getElementById('landing-page');
+      const isLandingVisible = landingEl && landingEl.style.display !== 'none';
+
+      if (user) {
+        // If signed in, always go to dashboard (hide landing)
+        if (window.landingComponent) window.landingComponent.hide();
+        window.dashboardComponent.show(user);
+      } else {
+        // If signed out, only update dashboard if they are already looking at it.
+        // If the landing page is visible, keep it visibile.
+        if (!isLandingVisible) {
+          window.dashboardComponent.show(null);
+        } else {
+          if (window.landingComponent) window.landingComponent.show();
+        }
+      }
     }
   }
 

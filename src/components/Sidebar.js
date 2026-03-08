@@ -23,6 +23,7 @@ export default class Sidebar {
         this.onFilterChange = onFilterChange;
         this.places = [];
         this.activeId = null;
+        this.renderGeneration = 0;
 
         // Events
         this.toggleBtn.addEventListener('click', () => this.toggle());
@@ -122,6 +123,8 @@ export default class Sidebar {
     }
 
     async renderPlaces(places) {
+        const currentGen = ++this.renderGeneration;
+
         if (places.length === 0) {
             this.listEl.innerHTML = `
         <div class="empty-state">
@@ -137,7 +140,13 @@ export default class Sidebar {
         }
 
         this.listEl.innerHTML = '';
+
+        // Prepare HTML for all items first to strictly control DOM order and prevent reflow issues
+        const fragment = document.createDocumentFragment();
+
         for (const place of places) {
+            if (this.renderGeneration !== currentGen) return; // Abort if a new render started
+
             const item = document.createElement('div');
             item.className = 'place-item' + (place.id === this.activeId ? ' active' : '');
             item.dataset.placeId = place.id;
@@ -180,7 +189,13 @@ export default class Sidebar {
                 this.onPlaceClick?.(place);
             });
 
-            this.listEl.appendChild(item);
+            fragment.appendChild(item);
+        }
+
+        // Final sanity check before DOM flush
+        if (this.renderGeneration === currentGen) {
+            this.listEl.innerHTML = ''; // clear again just in case another sync operation dirtied it
+            this.listEl.appendChild(fragment);
         }
     }
 

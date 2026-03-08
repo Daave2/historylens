@@ -9,7 +9,9 @@
     background: var(--bg-base);
     color: var(--text-primary);
     overflow-y: auto;
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
     z-index: 1000;
 }
 
