@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  ignore = "git diff --quiet HEAD^ HEAD src/ public/ package.json vite.config.js index.html"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
