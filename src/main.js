@@ -280,6 +280,8 @@ async function initProjectView(project) {
             const collabModal = new CollaboratorsModal();
             collabModal.showRequestAccess(project.id, () => {
               showToast('Access request sent!', 'success');
+              currentUserRole = 'pending';
+              sidebar.showProjectParams(project, currentUserRole);
             });
           }
         });
@@ -288,6 +290,8 @@ async function initProjectView(project) {
       const collabModal = new CollaboratorsModal();
       collabModal.showRequestAccess(project.id, () => {
         showToast('Access request sent!', 'success');
+        currentUserRole = 'pending';
+        sidebar.showProjectParams(project, currentUserRole);
       });
     },
     onSetCentre: async () => {
