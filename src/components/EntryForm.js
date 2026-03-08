@@ -152,35 +152,6 @@ export default class EntryForm {
     }
   }
 
-  async resizeImage(file, maxWidth = 1024) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Get base64 string with reasonable jpeg compression
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
   async analyzeUploadedImage(file) {
     const titleInput = this.content.querySelector('#ef-title');
     const startInput = this.content.querySelector('#ef-year-start');
@@ -192,8 +163,13 @@ export default class EntryForm {
     outputEl.innerHTML = `<div style="color: var(--text-muted); font-size: var(--text-sm); margin-top: var(--space-sm);">✨ AI is analyzing your image to estimate dates and details...</div>`;
 
     try {
-      // Resize and convert to base64
-      const base64DataUrl = await this.resizeImage(file);
+      // Convert to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(file);
+      });
+      const base64DataUrl = await base64Promise;
 
       // Call AI Vision
       const result = await analyzeImage(base64DataUrl, this.place.name);
