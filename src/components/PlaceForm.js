@@ -72,6 +72,11 @@ export default class PlaceForm {
       </div>
 
       <div class="form-group">
+        <label class="form-label">Abstract / Description</label>
+        <textarea class="form-textarea" id="pf-description" placeholder="A brief encyclopedia-style introduction to this place..." rows="4" style="font-family: var(--font-body); line-height: 1.6; resize: vertical;"></textarea>
+      </div>
+
+      <div class="form-group">
         <label class="form-label">Location</label>
         <div class="form-row">
           <input class="form-input" id="pf-lat" type="number" step="any" placeholder="Latitude" value="${latLng?.lat?.toFixed(6) || ''}" />
@@ -344,6 +349,14 @@ export default class PlaceForm {
       // hide the custom input explicitly just in case
       this.content.querySelector('#pf-category-custom').style.display = 'none';
 
+      // Description Abstract
+      const descInput = this.content.querySelector('#pf-description');
+      if (info.wikiSummary && info.wikiSummary.extract) {
+        descInput.value = info.wikiSummary.extract;
+      } else {
+        descInput.value = '';
+      }
+
     } else {
       hintEl.textContent = '';
       nameInput.placeholder = 'e.g. 4 Gordon Street';
@@ -451,6 +464,7 @@ export default class PlaceForm {
     if (category === 'other') {
       category = this.content.querySelector('#pf-category-custom').value.trim() || 'other';
     }
+    const description = this.content.querySelector('#pf-description').value.trim();
     const lat = parseFloat(this.content.querySelector('#pf-lat').value);
     const lng = parseFloat(this.content.querySelector('#pf-lng').value);
 
@@ -474,7 +488,7 @@ export default class PlaceForm {
       });
     }
 
-    this.onSave?.({ name, category, lat, lng, autoEntries: selectedEntries });
+    this.onSave?.({ name, description, category, lat, lng, autoEntries: selectedEntries });
     this.close();
   }
 

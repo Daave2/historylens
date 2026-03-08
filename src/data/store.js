@@ -34,6 +34,7 @@ const mapPlace = (row) => ({
     id: row.id,
     projectId: row.project_id,
     name: row.name,
+    description: row.description,
     lat: row.lat,
     lng: row.lng,
     category: row.category,
@@ -223,10 +224,11 @@ export async function removeRole(roleId) {
 
 // ── Places ────────────────────────────────────────────────
 
-export async function createPlace({ projectId, name, lat, lng, category }) {
+export async function createPlace({ projectId, name, description, lat, lng, category }) {
     const { data, error } = await supabase.from('places').insert({
         project_id: projectId,
         name: name || 'Unnamed Place',
+        description: description || null,
         lat,
         lng,
         category: category || 'residential'
@@ -238,6 +240,7 @@ export async function createPlace({ projectId, name, lat, lng, category }) {
 export async function updatePlace(id, changes) {
     const update = { ...changes };
     if (changes.projectId) { update.project_id = changes.projectId; delete update.projectId; }
+    if (changes.description !== undefined) { update.description = changes.description || null; }
 
     const { data, error } = await supabase.from('places').update(update).eq('id', id).select().single();
     if (error) { console.error(error); throw error; }

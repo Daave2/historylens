@@ -178,6 +178,21 @@ export default class PlaceDetail {
         </div>
       </div>
 
+      ${place.description ? `
+      <div class="place-detail-description" style="
+        font-family: var(--font-body); 
+        font-size: var(--text-sm); 
+        line-height: 1.6; 
+        color: var(--text-secondary); 
+        margin: var(--space-md) 0 var(--space-lg) 0; 
+        padding-bottom: var(--space-md); 
+        border-bottom: 1px solid var(--glass-border);
+        white-space: pre-wrap;
+      ">
+        ${place.description}
+      </div>
+      ` : ''}
+
       ${!isReadOnly ? `
       <div class="place-detail-actions">
         <button class="btn btn-primary" id="detail-add-entry">

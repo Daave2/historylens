@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS places (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  description TEXT,
   lat DOUBLE PRECISION NOT NULL,
   lng DOUBLE PRECISION NOT NULL,
   category TEXT DEFAULT 'residential',

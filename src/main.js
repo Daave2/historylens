@@ -307,10 +307,10 @@ async function initProjectView(project) {
   // Place form
   const placeForm = new PlaceForm({
     mapView,
-    onSave: async ({ name, category, lat, lng, autoEntries }) => {
+    onSave: async ({ name, description, category, lat, lng, autoEntries }) => {
       const place = await createPlace({
         projectId: project.id,
-        name, lat, lng, category
+        name, description, lat, lng, category
       });
       mapView.addMarker(place);
 
