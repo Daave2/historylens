@@ -1,7 +1,7 @@
 import { getPlacesByProject, getTimeEntriesForPlace, getImagesForEntry } from '../data/store.js';
 
 export default class Sidebar {
-    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onProjectEdit, onManageCollaborators, onRequestAccess, onSetCentre, onFilterChange }) {
+    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange }) {
         this.el = document.getElementById('sidebar');
         this.listEl = document.getElementById('place-list');
         this.countEl = document.getElementById('place-count');
@@ -10,13 +10,11 @@ export default class Sidebar {
         this.toggleBtn = document.getElementById('sidebar-toggle');
         this.projectNameEl = document.getElementById('project-name');
         this.projectDescEl = document.getElementById('project-desc');
-        this.visibilityCheck = document.getElementById('project-visibility');
         this.addBtn = document.getElementById('btn-add-place');
         this.importBtn = document.getElementById('btn-import');
         this.exportBtn = document.getElementById('btn-export');
-        this.collabManageBtn = document.getElementById('btn-collab-manage');
+        this.settingsBtn = document.getElementById('btn-project-settings');
         this.collabRequestBtn = document.getElementById('btn-collab-request');
-        this.setCentreBtn = document.getElementById('btn-set-centre');
 
         this.onPlaceClick = onPlaceClick;
         this.onProjectEdit = onProjectEdit;
@@ -30,9 +28,8 @@ export default class Sidebar {
         this.addBtn.addEventListener('click', () => onAddPlace?.());
         this.importBtn.addEventListener('click', () => onImport?.());
         this.exportBtn.addEventListener('click', () => onExport?.());
-        if (this.collabManageBtn) this.collabManageBtn.addEventListener('click', () => onManageCollaborators?.());
+        if (this.settingsBtn) this.settingsBtn.addEventListener('click', () => onProjectSettings?.());
         if (this.collabRequestBtn) this.collabRequestBtn.addEventListener('click', () => onRequestAccess?.());
-        if (this.setCentreBtn) this.setCentreBtn.addEventListener('click', () => onSetCentre?.());
         this.searchInput.addEventListener('input', () => this.filterPlaces());
         if (this.categoryFilter) this.categoryFilter.addEventListener('change', () => this.filterPlaces());
 
@@ -43,50 +40,35 @@ export default class Sidebar {
         this.projectDescEl.addEventListener('click', () => {
             if (!this.isReadOnly) this.editProjectDesc();
         });
-
-        // Visibility toggle
-        if (this.visibilityCheck) {
-            this.visibilityCheck.addEventListener('change', (e) => {
-                this.onProjectEdit?.({ isPublic: e.target.checked });
-            });
-        }
     }
 
     setProject(project, isReadOnly = false, currentUserRole = null) {
         this.isReadOnly = isReadOnly;
         this.projectNameEl.textContent = project.name;
         this.projectDescEl.textContent = project.description || 'Click to add a description…';
-        if (this.visibilityCheck) {
-            this.visibilityCheck.checked = project.isPublic !== false;
-        }
 
         if (this.isReadOnly) {
             this.projectNameEl.classList.remove('editable-title');
             this.projectDescEl.classList.remove('editable-desc');
             if (this.addBtn) this.addBtn.style.display = 'none';
             if (this.importBtn) this.importBtn.parentElement.style.display = 'none'; // btn-group
-            if (this.visibilityCheck) this.visibilityCheck.parentElement.style.display = 'none';
         } else {
             this.projectNameEl.classList.add('editable-title');
             this.projectDescEl.classList.add('editable-desc');
             if (this.addBtn) this.addBtn.style.display = '';
             if (this.importBtn) this.importBtn.parentElement.style.display = 'flex';
-            if (this.visibilityCheck) this.visibilityCheck.parentElement.style.display = 'flex';
         }
 
         // Collaboration Buttons
-        if (this.collabManageBtn && this.collabRequestBtn) {
+        if (this.settingsBtn && this.collabRequestBtn) {
             if (currentUserRole === 'owner' || currentUserRole === 'admin') {
-                this.collabManageBtn.style.display = 'flex';
+                this.settingsBtn.style.display = 'flex';
                 this.collabRequestBtn.style.display = 'none';
-                if (this.setCentreBtn) this.setCentreBtn.style.display = 'flex';
             } else if (currentUserRole === null) {
-                this.collabManageBtn.style.display = 'none';
+                this.settingsBtn.style.display = 'none';
                 this.collabRequestBtn.style.display = 'flex';
-                if (this.setCentreBtn) this.setCentreBtn.style.display = 'none';
             } else {
-                this.collabManageBtn.style.display = 'none';
-                if (this.setCentreBtn) this.setCentreBtn.style.display = 'none';
+                this.settingsBtn.style.display = 'none';
                 this.collabRequestBtn.style.display = 'none';
             }
         }

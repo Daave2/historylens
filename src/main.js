@@ -32,7 +32,7 @@ import AuthModal from './components/AuthModal.js';
 import ProfileModal from './components/ProfileModal.js';
 import Dashboard from './components/Dashboard.js';
 import LandingPage from './components/LandingPage.js';
-import CollaboratorsModal from './components/CollaboratorsModal.js';
+import ProjectSettings from './components/ProjectSettings.js';
 
 // ── App State ──────────────────────────────────────────────
 let currentProject = null;
@@ -267,9 +267,26 @@ async function initProjectView(project) {
     onProjectEdit: async (changes) => {
       currentProject = await updateProject(project.id, changes);
     },
-    onManageCollaborators: () => {
-      const collabModal = new CollaboratorsModal();
-      collabModal.showManage(project.id, currentUserRole);
+    onProjectSettings: () => {
+      const settingsModal = new ProjectSettings();
+      settingsModal.showManage(currentProject, currentUserRole, {
+        onSetCentre: async () => {
+          const centre = mapView.map.getCenter();
+          const zoom = mapView.map.getZoom();
+          currentProject = await updateProject(currentProject.id, {
+            settings: {
+              map: { center: [centre.lat, centre.lng], zoom }
+            }
+          });
+        },
+        onSaveProjectInfo: async (changes) => {
+          currentProject = await updateProject(currentProject.id, changes);
+          sidebar.setProject(currentProject, isReadOnly, currentUserRole);
+        },
+        onRefreshRequired: async () => {
+          await refreshAll(mapView, sidebar, timeSlider);
+        }
+      });
     },
     onRequestAccess: () => {
       if (!currentUser) {
@@ -277,31 +294,22 @@ async function initProjectView(project) {
         const authModal = new AuthModal();
         authModal.show({
           onSuccess: () => {
-            const collabModal = new CollaboratorsModal();
-            collabModal.showRequestAccess(project.id, () => {
+            const settingsModal = new ProjectSettings();
+            settingsModal.showRequestAccess(currentProject.id, () => {
               showToast('Access request sent!', 'success');
               currentUserRole = 'pending';
-              sidebar.showProjectParams(project, currentUserRole);
+              sidebar.setProject(currentProject, isReadOnly, currentUserRole);
             });
           }
         });
         return;
       }
-      const collabModal = new CollaboratorsModal();
-      collabModal.showRequestAccess(project.id, () => {
+      const settingsModal = new ProjectSettings();
+      settingsModal.showRequestAccess(currentProject.id, () => {
         showToast('Access request sent!', 'success');
         currentUserRole = 'pending';
-        sidebar.showProjectParams(project, currentUserRole);
+        sidebar.setProject(currentProject, isReadOnly, currentUserRole);
       });
-    },
-    onSetCentre: async () => {
-      const centre = mapView.map.getCenter();
-      const zoom = mapView.map.getZoom();
-      currentProject = await updateProject(project.id, {
-        centre: { lat: centre.lat, lng: centre.lng },
-        defaultZoom: zoom
-      });
-      showToast(`Map centre set to ${centre.lat.toFixed(4)}, ${centre.lng.toFixed(4)} (zoom ${zoom})`, 'success');
     }
   });
   sidebar.setProject(project, isReadOnly, currentUserRole);

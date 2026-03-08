@@ -56,22 +56,10 @@
         <div id="project-header">
           <h2 id="project-name" class="editable-title">New Project</h2>
           <p id="project-desc" class="editable-desc">Click to add a description…</p>
-          <div class="visibility-toggle"
-            style="margin-top: var(--space-sm); display: flex; align-items: center; gap: var(--space-xs);">
-            <input type="checkbox" id="project-visibility" checked />
-            <label for="project-visibility"
-              style="font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer;">Public Project</label>
-          </div>
           <div id="collab-actions" style="margin-top: var(--space-md); display: flex; gap: var(--space-sm);">
-            <button id="btn-collab-manage" class="btn btn-ghost"
+            <button id="btn-project-settings" class="btn btn-ghost"
               style="display:none; width: 100%; font-size: var(--text-xs); justify-content: center;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              Collaborators
+              ⚙️ Project Settings
             </button>
             <button id="btn-collab-request" class="btn btn-ghost"
               style="display:none; width: 100%; font-size: var(--text-xs); justify-content: center;">
@@ -82,14 +70,6 @@
                 <line x1="23" y1="11" x2="17" y2="11" />
               </svg>
               Request Access
-            </button>
-            <button id="btn-set-centre" class="btn btn-ghost"
-              style="display:none; width: 100%; font-size: var(--text-xs); justify-content: center;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-              </svg>
-              Set Map Centre
             </button>
           </div>
         </div>

@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS project_roles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('editor', 'admin', 'pending')),
+  role TEXT NOT NULL CHECK (role IN ('editor', 'admin', 'pending', 'banned')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(project_id, user_id)
 );

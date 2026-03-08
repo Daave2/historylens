@@ -222,6 +222,35 @@ export async function removeRole(roleId) {
     return true;
 }
 
+export async function banUser(projectId, userId) {
+    const session = await getSession();
+    if (!session) throw new Error("Must be signed in");
+
+    const { data, error } = await supabase.from('project_roles').upsert({
+        project_id: projectId,
+        user_id: userId,
+        role: 'banned'
+    }, { onConflict: 'project_id, user_id' }).select().single();
+
+    if (error) { console.error(error); throw error; }
+    return data;
+}
+
+export async function wipeUserContributions(projectId, userId) {
+    const { error } = await supabase.rpc('delete_user_contributions', {
+        p_project_id: projectId,
+        p_user_id: userId
+    });
+    if (error) { console.error(error); throw error; }
+    return true;
+}
+
+export async function deleteProject(projectId) {
+    const { error } = await supabase.from('projects').delete().eq('id', projectId);
+    if (error) { console.error(error); throw error; }
+    return true;
+}
+
 // ── Places ────────────────────────────────────────────────
 
 export async function createPlace({ projectId, name, description, lat, lng, category }) {
