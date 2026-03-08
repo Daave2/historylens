@@ -36,6 +36,7 @@ import CollaboratorsModal from './components/CollaboratorsModal.js';
 let currentProject = null;
 let currentUser = null;
 let selectedYear = new Date().getFullYear();
+let currentVisiblePlaceIds = null; // null means all are visible
 
 // ── Init ───────────────────────────────────────────────────
 async function init() {
@@ -189,6 +190,10 @@ async function initProjectView(project) {
     onPlaceClick: (place) => {
       mapView.panTo(place.lat, place.lng);
       placeDetail.show(place);
+    },
+    onFilterChange: (visibleIds) => {
+      currentVisiblePlaceIds = new Set(visibleIds);
+      updateMarkerStates(mapView, project.id, selectedYear);
     },
     onAddPlace: () => {
       mapView.setAddMode(true);
@@ -403,6 +408,13 @@ async function loadMarkers(mapView, projectId) {
 async function updateMarkerStates(mapView, projectId, year) {
   const places = await getPlacesByProject(projectId);
   for (const place of places) {
+    if (currentVisiblePlaceIds && !currentVisiblePlaceIds.has(place.id)) {
+      mapView.setMarkerVisible(place.id, false);
+      continue;
+    }
+
+    mapView.setMarkerVisible(place.id, true);
+
     const result = await getBestEntryForYear(place.id, year);
     // Dim markers that have no data for this year
     if (result.type === 'none') {

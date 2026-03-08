@@ -384,6 +384,39 @@ export async function getBestImageForYear(placeId, year) {
     }
     if (allImages.length === 0) return null;
     allImages.sort((a, b) => Math.abs(a.effectiveYear - year) - Math.abs(b.effectiveYear - year));
-    return allImages[0];
 }
 
+// ── Comments ────────────────────────────────────────────────
+
+export async function getComments(placeId) {
+    const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .eq('place_id', placeId)
+        .order('created_at', { ascending: true }); // Oldest first for a read-down thread
+
+    if (error) {
+        console.error('Error fetching comments:', error);
+        return [];
+    }
+    return data;
+}
+
+export async function addComment(placeId, content) {
+    if (!content || !content.trim()) throw new Error('Comment cannot be empty');
+
+    const { data, error } = await supabase
+        .from('comments')
+        .insert({
+            place_id: placeId,
+            content: content.trim()
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error adding comment:', error);
+        throw error;
+    }
+    return data;
+}

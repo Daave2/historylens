@@ -1,4 +1,4 @@
-import { getTimeEntriesForPlace, getImagesForEntry, deleteTimeEntry, deletePlace, createTimeEntry, getProfiles } from '../data/store.js';
+import { getTimeEntriesForPlace, getImagesForEntry, deleteTimeEntry, deletePlace, createTimeEntry, getProfiles, getComments, addComment } from '../data/store.js';
 import { hasAiAccess, generateSpeculativeContext } from '../ai/ai.js';
 
 export default class PlaceDetail {
@@ -21,9 +21,10 @@ export default class PlaceDetail {
   async show(place, isReadOnly = false, currentUser = null, currentUserRole = null) {
     this.place = place;
     const entries = await getTimeEntriesForPlace(place.id);
+    const comments = await getComments(place.id);
 
     // Fetch user profiles for attribution
-    const userIds = [place.createdBy, ...entries.map(e => e.createdBy)];
+    const userIds = [place.createdBy, ...entries.map(e => e.createdBy), ...comments.map(c => c.user_id)];
     const profiles = await getProfiles(userIds);
 
     const catColour = {
@@ -99,6 +100,62 @@ export default class PlaceDetail {
       timelineHtml += '</div>';
     }
 
+    // ── Comments HTML ──
+    let commentsHtml = '<div class="comments-list">';
+    if (comments.length === 0) {
+      commentsHtml += `
+        <div class="empty-state" style="padding: var(--space-xl); margin-top: var(--space-md);">
+          <h4>No comments yet</h4>
+          <p>Start a discussion with collaborators about this place.</p>
+        </div>
+      `;
+    } else {
+      for (const comment of comments) {
+        const cProfile = profiles[comment.user_id];
+        let authorDisplay = 'Unknown User';
+        let initial = '?';
+        if (cProfile) {
+          authorDisplay = cProfile.display_name || (cProfile.email ? cProfile.email.split('@')[0] : 'Unknown');
+          initial = authorDisplay.charAt(0).toUpperCase();
+        }
+
+        commentsHtml += `
+          <div class="comment-item" style="display: flex; gap: var(--space-md); margin-bottom: var(--space-lg);">
+            <div class="comment-avatar" style="width: 32px; height: 32px; border-radius: 50%; background: var(--glass-overlay); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: var(--text-sm); flex-shrink: 0; border: 1px solid var(--glass-border);">
+              ${initial}
+            </div>
+            <div class="comment-content" style="flex: 1;">
+              <div style="font-size: var(--text-sm); display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <strong>${authorDisplay}</strong>
+                <span style="color: var(--text-muted); font-size: var(--text-xs);">${new Date(comment.created_at).toLocaleDateString()}</span>
+              </div>
+              <div style="font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap;">${comment.content}</div>
+            </div>
+          </div>
+        `;
+      }
+    }
+    commentsHtml += '</div>';
+
+    // Add comment form
+    if (!isReadOnly && currentUser) {
+      commentsHtml += `
+        <div class="comment-form-container" style="margin-top: var(--space-xl); padding-top: var(--space-lg); border-top: 1px solid var(--glass-border);">
+          <textarea id="new-comment-text" class="form-textarea" placeholder="Write a comment..." style="width: 100%; min-height: 80px; margin-bottom: var(--space-sm);"></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <p style="font-size: var(--text-xs); color: var(--text-muted);">Format: text only</p>
+            <button id="btn-submit-comment" class="btn btn-primary" style="padding: 6px 16px; font-size: var(--text-sm);">Post Comment</button>
+          </div>
+        </div>
+      `;
+    } else if (!currentUser) {
+      commentsHtml += `
+        <div style="margin-top: var(--space-xl); text-align: center; font-size: var(--text-sm); color: var(--text-muted);">
+          <p>Sign in to join the discussion.</p>
+        </div>
+      `;
+    }
+
     const pProfile = profiles[place.createdBy];
     let placeAuthor = 'Unknown User';
     if (pProfile) {
@@ -136,8 +193,40 @@ export default class PlaceDetail {
       </div>
       ` : ''}
 
-      ${timelineHtml}
+      <div class="detail-tabs" style="display: flex; gap: var(--space-md); border-bottom: 1px solid var(--glass-border); margin: var(--space-lg) 0;">
+        <button class="tab-btn active" data-tab="timeline" style="background: none; border: none; padding: var(--space-sm) 0; color: var(--text-primary); font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--accent);">Timeline</button>
+        <button class="tab-btn" data-tab="discussion" style="background: none; border: none; padding: var(--space-sm) 0; color: var(--text-muted); font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent;">Discussion <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
+      </div>
+
+      <div id="tab-timeline" class="tab-content" style="display: block;">
+        ${timelineHtml}
+      </div>
+      <div id="tab-discussion" class="tab-content" style="display: none;">
+        ${commentsHtml}
+      </div>
     `;
+
+    // Tab logic
+    const tabs = this.content.querySelectorAll('.tab-btn');
+    const tabContents = this.content.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => {
+          t.classList.remove('active');
+          t.style.fontWeight = '500';
+          t.style.color = 'var(--text-muted)';
+          t.style.borderBottomColor = 'transparent';
+        });
+        tabContents.forEach(c => c.style.display = 'none');
+
+        tab.classList.add('active');
+        tab.style.fontWeight = '600';
+        tab.style.color = 'var(--text-primary)';
+        tab.style.borderBottomColor = 'var(--accent)';
+        this.content.querySelector(`#tab-${tab.dataset.tab}`).style.display = 'block';
+      });
+    });
 
     // Wire event listeners
     if (!isReadOnly) {
@@ -150,6 +239,34 @@ export default class PlaceDetail {
           await deletePlace(place.id);
           this.onDeletePlace?.(place);
           this.close();
+        }
+      });
+    }
+
+    // Comment sumbit
+    const commentBtn = this.content.querySelector('#btn-submit-comment');
+    if (commentBtn) {
+      commentBtn.addEventListener('click', async () => {
+        const textInput = this.content.querySelector('#new-comment-text');
+        const text = textInput.value;
+        if (!text.trim()) return;
+
+        try {
+          commentBtn.disabled = true;
+          commentBtn.textContent = 'Posting...';
+          await addComment(place.id, text);
+          // Refresh the view, but try to default straight back to the discussion tab
+          await this.show(place, isReadOnly, currentUser, currentUserRole);
+          const discTab = this.content.querySelector('.tab-btn[data-tab="discussion"]');
+          if (discTab) discTab.click();
+        } catch (err) {
+          console.error(err);
+          alert('Failed to post comment.');
+        } finally {
+          if (commentBtn) {
+            commentBtn.disabled = false;
+            commentBtn.textContent = 'Post Comment';
+          }
         }
       });
     }

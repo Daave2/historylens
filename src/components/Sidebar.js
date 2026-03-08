@@ -1,11 +1,12 @@
 import { getPlacesByProject, getTimeEntriesForPlace, getImagesForEntry } from '../data/store.js';
 
 export default class Sidebar {
-    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onProjectEdit, onManageCollaborators, onRequestAccess, onSetCentre }) {
+    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onProjectEdit, onManageCollaborators, onRequestAccess, onSetCentre, onFilterChange }) {
         this.el = document.getElementById('sidebar');
         this.listEl = document.getElementById('place-list');
         this.countEl = document.getElementById('place-count');
         this.searchInput = document.getElementById('place-search');
+        this.categoryFilter = document.getElementById('category-filter');
         this.toggleBtn = document.getElementById('sidebar-toggle');
         this.projectNameEl = document.getElementById('project-name');
         this.projectDescEl = document.getElementById('project-desc');
@@ -19,6 +20,7 @@ export default class Sidebar {
 
         this.onPlaceClick = onPlaceClick;
         this.onProjectEdit = onProjectEdit;
+        this.onFilterChange = onFilterChange;
         this.places = [];
         this.activeId = null;
 
@@ -31,6 +33,7 @@ export default class Sidebar {
         if (this.collabRequestBtn) this.collabRequestBtn.addEventListener('click', () => onRequestAccess?.());
         if (this.setCentreBtn) this.setCentreBtn.addEventListener('click', () => onSetCentre?.());
         this.searchInput.addEventListener('input', () => this.filterPlaces());
+        if (this.categoryFilter) this.categoryFilter.addEventListener('change', () => this.filterPlaces());
 
         // Editable project name
         this.projectNameEl.addEventListener('click', () => {
@@ -96,15 +99,23 @@ export default class Sidebar {
 
     filterPlaces() {
         const query = this.searchInput.value.toLowerCase().trim();
-        if (!query) {
-            this.renderPlaces(this.places);
-            return;
-        }
-        const filtered = this.places.filter(p =>
-            p.name.toLowerCase().includes(query) ||
-            p.category.toLowerCase().includes(query)
-        );
+        const cat = this.categoryFilter ? this.categoryFilter.value : '';
+
+        const filtered = this.places.filter(p => {
+            const matchesQuery = !query || p.name.toLowerCase().includes(query) || p.category.toLowerCase().includes(query);
+            // Allow matching "other" categories by checking if it's not one of our standard ones
+            let pCat = p.category.toLowerCase();
+            const standardCats = ['residential', 'commercial', 'landmark', 'natural', 'infrastructure'];
+            if (cat === 'other') {
+                pCat = standardCats.includes(pCat) ? 'standard' : 'other';
+            }
+
+            const matchesCat = !cat || pCat === cat;
+            return matchesQuery && matchesCat;
+        });
+
         this.renderPlaces(filtered);
+        this.onFilterChange?.(filtered.map(p => p.id));
     }
 
     async renderPlaces(places) {

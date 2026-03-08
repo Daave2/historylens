@@ -121,6 +121,16 @@ export default class MapView {
         this.markers.clear();
     }
 
+    setMarkerVisible(placeId, visible) {
+        const marker = this.markers.get(placeId);
+        if (!marker) return;
+        if (visible && !this.map.hasLayer(marker)) {
+            marker.addTo(this.map);
+        } else if (!visible && this.map.hasLayer(marker)) {
+            marker.remove();
+        }
+    }
+
     setMarkerOpacity(placeId, opacity) {
         const marker = this.markers.get(placeId);
         if (marker) marker.setOpacity(opacity);

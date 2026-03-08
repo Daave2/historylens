@@ -100,6 +100,19 @@
           <input type="search" id="place-search" placeholder="Search places, dates, events…" autocomplete="off" />
         </div>
 
+        <div class="filter-row" style="margin-top: var(--space-sm); width: 100%;">
+          <select id="category-filter" class="form-select"
+            style="width: 100%; padding: var(--space-sm) var(--space-md);">
+            <option value="">All Categories</option>
+            <option value="residential">🏠 Residential</option>
+            <option value="commercial">🏪 Commercial</option>
+            <option value="landmark">⭐ Landmark</option>
+            <option value="natural">🌳 Natural</option>
+            <option value="infrastructure">🏗️ Infrastructure</option>
+            <option value="other">Other...</option>
+          </select>
+        </div>
+
         <!-- Place list -->
         <div class="section-header">
           <h3>Explore Places</h3>
