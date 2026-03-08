@@ -31,6 +31,7 @@ import MapOverlay from './components/MapOverlay.js';
 import AuthModal from './components/AuthModal.js';
 import ProfileModal from './components/ProfileModal.js';
 import Dashboard from './components/Dashboard.js';
+import LandingPage from './components/LandingPage.js';
 import CollaboratorsModal from './components/CollaboratorsModal.js';
 
 // ── App State ──────────────────────────────────────────────
@@ -127,7 +128,7 @@ async function init() {
       window.location.href = '/';
     }
   } else {
-    // Show Dashboard
+    // Show Dashboard or Landing Page Context
     const dashboard = new Dashboard({
       onSelectProject: (id) => {
         window.location.search = `?project=${id}`;
@@ -136,12 +137,40 @@ async function init() {
         authModal.show({
           onSuccess: (user) => {
             showToast(`Signed in as ${user.email}`, 'success');
+            // If they just signed in and are on landing page, maybe bounce them to dashboard
+            if (window.landingComponent && !currentProject) {
+              window.landingComponent.hide();
+              window.dashboardComponent.show(user);
+            }
           }
         });
       }
     });
     window.dashboardComponent = dashboard;
-    dashboard.show(currentUser);
+
+    // Create landing page
+    const landing = new LandingPage({
+      onExplore: () => {
+        landing.hide();
+        dashboard.show(currentUser);
+      },
+      onAuthRequest: () => {
+        authModal.show({
+          onSuccess: (user) => {
+            showToast(`Signed in as ${user.email}`, 'success');
+            landing.hide();
+            dashboard.show(user);
+          }
+        });
+      }
+    });
+    window.landingComponent = landing;
+
+    if (currentUser) {
+      dashboard.show(currentUser);
+    } else {
+      landing.show();
+    }
   }
 }
 

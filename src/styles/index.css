@@ -3,6 +3,7 @@
    ============================================================ */
 
 @import url('./dashboard.css');
+@import url('./landing.css');
 
 /* --- CSS Custom Properties --- */
 :root {
