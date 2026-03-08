@@ -30,7 +30,7 @@ export default class PlaceForm {
         <label class="form-label">🔍 Search Address</label>
         <input class="form-input" id="pf-search" name="place-search" type="search"
                placeholder="Type an address, e.g. 4 Gordon Street, Blackpool"
-               autocomplete="new-password" spellcheck="false"
+               autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false"
                style="font-size: var(--text-md); padding: var(--space-sm) var(--space-md);" />
         <div id="pf-search-results" style="
           display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 1000;
@@ -50,7 +50,7 @@ export default class PlaceForm {
         <label class="form-label">Place Name</label>
         <div style="display: flex; gap: var(--space-xs);">
           <select class="form-select" id="pf-name-select" style="flex: 1; display: none;"></select>
-          <input class="form-input" id="pf-name" name="place-name" type="text" autocomplete="new-password" spellcheck="false" placeholder="Will auto-fill from search or map click" style="flex: 1;" />
+          <input class="form-input" id="pf-name" name="place-name" type="text" autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" placeholder="Will auto-fill from search or map click" style="flex: 1;" />
           <button class="icon-btn" id="pf-rescan" title="Re-scan history using this exact name" style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: 0 var(--space-sm);">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
           </button>
