@@ -1,4 +1,5 @@
 import { supabase } from '../data/supabaseClient.js';
+import { signInWithFacebook } from '../data/store.js';
 
 export default class AuthModal {
     constructor() {
@@ -18,6 +19,19 @@ export default class AuthModal {
         <p style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-xl);">
           To create projects or edit places, you need to sign in. Reading public history is always free.
         </p>
+
+        <button class="btn" id="auth-btn-facebook" style="width: 100%; margin-bottom: var(--space-lg); background-color: #1877F2; color: white; border-color: #1877F2; gap: var(--space-sm); justify-content: center;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+          </svg>
+          Continue with Facebook
+        </button>
+
+        <div style="display: flex; align-items: center; text-align: center; margin-bottom: var(--space-lg);">
+          <div style="flex-grow: 1; border-bottom: 1px solid var(--border-color);"></div>
+          <span style="padding: 0 var(--space-md); color: var(--text-muted); font-size: var(--text-xs); text-transform: uppercase;">or email</span>
+          <div style="flex-grow: 1; border-bottom: 1px solid var(--border-color);"></div>
+        </div>
         
         <div class="form-group">
           <label class="form-label">Email</label>
@@ -57,6 +71,17 @@ export default class AuthModal {
             errBox.textContent = '';
             errBox.style.display = 'none';
         };
+
+        this.modal.querySelector('#auth-btn-facebook').addEventListener('click', async () => {
+            clearError();
+            try {
+                // This will redirect the user to Facebook. 
+                // The current session will end, and the app will reload with the token in the URL.
+                await signInWithFacebook();
+            } catch (err) {
+                showError(err.message);
+            }
+        });
 
         this.modal.querySelector('#auth-btn-login').addEventListener('click', async () => {
             clearError();

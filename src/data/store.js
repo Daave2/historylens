@@ -14,6 +14,20 @@ export async function signOut() {
     await supabase.auth.signOut();
 }
 
+export async function signInWithFacebook() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'facebook',
+        options: {
+            redirectTo: window.location.origin
+        }
+    });
+    if (error) {
+        console.error('Facebook sign in error:', error);
+        throw error;
+    }
+    return data;
+}
+
 export function onAuthStateChange(callback) {
     return supabase.auth.onAuthStateChange(callback);
 }
