@@ -196,7 +196,7 @@ async function init() {
 }
 
 async function initProjectView(project) {
-  const currentUserRole = currentUser ? await getUserRole(project.id) : null;
+  let currentUserRole = currentUser ? await getUserRole(project.id) : null;
   const isReadOnly = !currentUserRole || currentUserRole === 'pending' || (currentUserRole !== 'owner' && currentUserRole !== 'editor' && currentUserRole !== 'admin');
 
   // Map
