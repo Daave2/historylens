@@ -16,6 +16,7 @@ export default class Sidebar {
         this.exportBtn = document.getElementById('btn-export');
         this.settingsBtn = document.getElementById('btn-project-settings');
         this.collabRequestBtn = document.getElementById('btn-collab-request');
+        this.collabStatusEl = document.getElementById('collab-status');
 
         this.onPlaceClick = onPlaceClick;
         this.onProjectEdit = onProjectEdit;
@@ -71,6 +72,18 @@ export default class Sidebar {
             } else {
                 this.settingsBtn.style.display = 'none';
                 this.collabRequestBtn.style.display = 'none';
+            }
+        }
+
+        if (this.collabStatusEl) {
+            this.collabStatusEl.style.display = 'none';
+            this.collabStatusEl.textContent = '';
+            if (currentUserRole === 'pending') {
+                this.collabStatusEl.textContent = 'Access request sent. Waiting for project owner approval.';
+                this.collabStatusEl.style.display = 'block';
+            } else if (currentUserRole === 'banned') {
+                this.collabStatusEl.textContent = 'You do not have access to edit this project.';
+                this.collabStatusEl.style.display = 'block';
             }
         }
     }

@@ -62,9 +62,9 @@ export default class CollaboratorsModal {
       requestBtn.disabled = true;
       requestBtn.textContent = 'Requesting...';
       try {
-        await requestAccess(projectId);
+        const result = await requestAccess(projectId);
         this.hide();
-        if (onSuccess) onSuccess();
+        if (onSuccess) onSuccess(result);
       } catch (err) {
         console.error(err);
         alert('Failed to request access: ' + err.message);

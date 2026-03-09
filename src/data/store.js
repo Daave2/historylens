@@ -243,14 +243,44 @@ export async function requestAccess(projectId) {
     const session = await getSession();
     if (!session) throw new Error("Must be signed in");
 
+    const { data: existingRole, error: existingRoleError } = await supabase
+        .from('project_roles')
+        .select('id, project_id, user_id, role, created_at')
+        .eq('project_id', projectId)
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+    if (existingRoleError) {
+        console.error(existingRoleError);
+        throw existingRoleError;
+    }
+
+    if (existingRole) {
+        return { ...existingRole, status: 'existing' };
+    }
+
     const { data, error } = await supabase.from('project_roles').insert({
         project_id: projectId,
         user_id: session.user.id,
         role: 'pending'
     }).select().single();
 
+    if (error?.code === '23505') {
+        // Race-safe fallback if request was created in another tab/session.
+        const { data: raceRole, error: raceRoleError } = await supabase
+            .from('project_roles')
+            .select('id, project_id, user_id, role, created_at')
+            .eq('project_id', projectId)
+            .eq('user_id', session.user.id)
+            .maybeSingle();
+
+        if (!raceRoleError && raceRole) {
+            return { ...raceRole, status: 'existing' };
+        }
+    }
+
     if (error) { console.error(error); throw error; }
-    return data;
+    return { ...data, status: 'created' };
 }
 
 export async function updateRole(roleId, newRole) {

@@ -396,6 +396,15 @@ body {
   flex: 1;
 }
 
+#collab-status {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
 /* --- Buttons --- */
 .btn {
   display: inline-flex;

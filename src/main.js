@@ -297,27 +297,24 @@ async function initProjectView(project) {
       });
     },
     onRequestAccess: () => {
+      const handleAccessRequestResult = (result) => {
+        const nextRole = result?.role || 'pending';
+        currentUserRole = nextRole;
+        sidebar.setProject(currentProject, isReadOnly, currentUserRole);
+      };
+
       if (!currentUser) {
-        showToast('Please sign in first to request access', 'info');
         const authModal = new AuthModal();
         authModal.show({
           onSuccess: () => {
             const settingsModal = new ProjectSettings();
-            settingsModal.showRequestAccess(currentProject.id, () => {
-              showToast('Access request sent!', 'success');
-              currentUserRole = 'pending';
-              sidebar.setProject(currentProject, isReadOnly, currentUserRole);
-            });
+            settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
           }
         });
         return;
       }
       const settingsModal = new ProjectSettings();
-      settingsModal.showRequestAccess(currentProject.id, () => {
-        showToast('Access request sent!', 'success');
-        currentUserRole = 'pending';
-        sidebar.setProject(currentProject, isReadOnly, currentUserRole);
-      });
+      settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
     }
   });
   sidebar.setProject(project, isReadOnly, currentUserRole);
