@@ -234,7 +234,7 @@ async function initProjectView(project) {
   const sidebar = new Sidebar({
     onPlaceClick: (place) => {
       mapView.panTo(place.lat, place.lng);
-      placeDetail.show(place);
+      placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
     },
     onFilterChange: (visibleIds) => {
       currentVisiblePlaceIds = new Set(visibleIds);
