@@ -100,6 +100,24 @@ CREATE TABLE IF NOT EXISTS images (
 CREATE INDEX IF NOT EXISTS idx_images_entry ON images(time_entry_id);
 
 -- ═══════════════════════════════════════════════
+-- OVERVIEW HISTORY
+-- ═══════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS place_overview_history (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  place_id UUID NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  previous_description TEXT,
+  new_description TEXT,
+  reason TEXT DEFAULT 'regenerate',
+  created_by UUID REFERENCES auth.users(id) DEFAULT auth.uid(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overview_history_place ON place_overview_history(place_id);
+CREATE INDEX IF NOT EXISTS idx_overview_history_project ON place_overview_history(project_id);
+CREATE INDEX IF NOT EXISTS idx_overview_history_created_at ON place_overview_history(created_at DESC);
+
+-- ═══════════════════════════════════════════════
 -- PROJECT ROLES (Collaboration)
 -- ═══════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS project_roles (
@@ -122,6 +140,7 @@ ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE places ENABLE ROW LEVEL SECURITY;
 ALTER TABLE time_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE images ENABLE ROW LEVEL SECURITY;
+ALTER TABLE place_overview_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
@@ -295,17 +314,38 @@ CREATE POLICY "Delete image metadata" ON images FOR DELETE
     (created_by = auth.uid() AND public.has_project_role(public.get_project_for_entry(time_entry_id), ARRAY['editor']))
   );
 
+-- OVERVIEW HISTORY
+CREATE POLICY "Read overview history" ON place_overview_history FOR SELECT
+  USING (
+    public.is_project_public(project_id) OR
+    public.is_project_owner(project_id) OR
+    public.has_project_role(project_id, ARRAY['editor', 'admin'])
+  );
+
+CREATE POLICY "Insert overview history" ON place_overview_history FOR INSERT
+  WITH CHECK (
+    public.is_project_owner(project_id) OR
+    public.has_project_role(project_id, ARRAY['editor', 'admin'])
+  );
+
 -- ═══════════════════════════════════════════════
 -- STORAGE BUCKET for images
 -- ═══════════════════════════════════════════════
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('place-images', 'place-images', true)
 ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('entry_images', 'entry_images', true)
+ON CONFLICT (id) DO NOTHING;
 
 -- Allow public read for images
-CREATE POLICY "Public image read" ON storage.objects FOR SELECT USING (bucket_id = 'place-images');
--- Allow any user to upload images
-CREATE POLICY "Allow image upload" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'place-images');
+CREATE POLICY "Public image read" ON storage.objects FOR SELECT USING (bucket_id IN ('place-images', 'entry_images'));
+-- Allow authenticated users to upload images
+CREATE POLICY "Allow image upload" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id IN ('place-images', 'entry_images'));
+-- Allow users to delete their own uploads
+CREATE POLICY "Allow image delete" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id IN ('place-images', 'entry_images') AND auth.uid() = owner);
 
 -- ═══════════════════════════════════════════════
 -- UPDATED_AT trigger

@@ -7,6 +7,11 @@ import {
   createPlace,
   createTimeEntry,
   updateTimeEntry,
+  addImage,
+  createOverviewRevision,
+  getPlace,
+  getTimeEntriesForPlace,
+  updatePlace,
   getPlacesByProject,
   getSession,
   signOut,
@@ -17,6 +22,7 @@ import {
   getProfiles,
   exportProjectGeoJSON
 } from './data/store.js';
+import { generatePlaceOverview } from './ai/ai.js';
 
 import { exportProject, importBundle, exportCSV, downloadFile, readFileAsJSON } from './data/io.js';
 
@@ -140,7 +146,7 @@ async function init() {
     } catch (err) {
       console.error(err);
       alert("Project not found or private.");
-      window.location.href = '/';
+      window.location.href = import.meta.env.BASE_URL || '/';
     }
   } else {
     // Show Dashboard or Landing Page Context
@@ -204,6 +210,7 @@ async function initProjectView(project) {
     },
     onMarkerClick: (place) => {
       sidebar.setActive(place.id);
+      placeDetail.activeTab = 'overview';
       placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
     },
     onMarkerHover: (place, point) => {
@@ -234,6 +241,7 @@ async function initProjectView(project) {
   const sidebar = new Sidebar({
     onPlaceClick: (place) => {
       mapView.panTo(place.lat, place.lng);
+      placeDetail.activeTab = 'overview';
       placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
     },
     onFilterChange: (visibleIds) => {
@@ -328,6 +336,9 @@ async function initProjectView(project) {
       await refreshAll(mapView, sidebar, timeSlider);
       showToast(`"${place.name}" deleted`, 'success');
     },
+    onRegenerateOverview: async (placeId) => {
+      return regeneratePlaceOverview(placeId, { force: true });
+    },
     onClose: () => { }
   });
 
@@ -356,6 +367,7 @@ async function initProjectView(project) {
           });
         }
       }
+      await regeneratePlaceOverview(place.id, { force: false });
 
       await sidebar.loadPlaces(project.id);
       await timeSlider.setRange(project.id);
@@ -382,6 +394,21 @@ async function initProjectView(project) {
           sourceType: data.sourceType,
           confidence: data.confidence
         });
+
+        // Allow adding new images while editing an existing entry.
+        for (const img of data.images || []) {
+          try {
+            await addImage({
+              timeEntryId: savedEntry.id,
+              blob: img.blob,
+              caption: img.caption,
+              yearTaken: img.yearTaken,
+              credit: img.credit
+            });
+          } catch (err) {
+            throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+          }
+        }
         showToast('Entry updated', 'success');
       } else {
         // Creating
@@ -398,13 +425,17 @@ async function initProjectView(project) {
 
         // Add images
         for (const img of data.images) {
-          await addImage({
-            timeEntryId: savedEntry.id,
-            blob: img.blob,
-            caption: img.caption,
-            yearTaken: img.yearTaken,
-            credit: img.credit
-          });
+          try {
+            await addImage({
+              timeEntryId: savedEntry.id,
+              blob: img.blob,
+              caption: img.caption,
+              yearTaken: img.yearTaken,
+              credit: img.credit
+            });
+          } catch (err) {
+            throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+          }
         }
         showToast('Entry added', 'success');
       }
@@ -414,7 +445,11 @@ async function initProjectView(project) {
 
       // Refresh detail if open
       const place = await getPlacesByProject(project.id).then(places => places.find(p => p.id === data.placeId));
-      if (place) placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
+      if (place) {
+        // Keep overview as default generally, but jump to timeline after image uploads
+        placeDetail.activeTab = data.images?.length ? 'timeline' : 'overview';
+        placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
+      }
     },
     onCancel: () => { }
   });
@@ -488,6 +523,40 @@ async function refreshAll(mapView, sidebar, timeSlider) {
   await loadMarkers(mapView, currentProject.id);
   await sidebar.loadPlaces(currentProject.id);
   await timeSlider.setRange(currentProject.id);
+}
+
+async function regeneratePlaceOverview(placeId, { force = false } = {}) {
+  try {
+    const place = await getPlace(placeId);
+    if (!place) return { updated: false, place: null, previousDescription: '' };
+    const previousDescription = (place.description || '').trim();
+    if (!force && previousDescription) {
+      return { updated: false, place, previousDescription };
+    }
+
+    const entries = await getTimeEntriesForPlace(placeId);
+    const overview = await generatePlaceOverview(place, entries);
+    if (overview && overview.trim() && overview.trim() !== previousDescription) {
+      await updatePlace(placeId, { description: overview });
+      // Keep place updates resilient even if overview-history migration is missing.
+      try {
+        await createOverviewRevision({
+          placeId,
+          previousDescription,
+          newDescription: overview,
+          reason: 'regenerate'
+        });
+      } catch (historyErr) {
+        console.warn('Could not log overview revision:', historyErr);
+      }
+      const updated = await getPlace(placeId);
+      return { updated: true, place: updated || place, previousDescription };
+    }
+    return { updated: false, place, previousDescription };
+  } catch (err) {
+    console.warn('Overview regeneration skipped:', err);
+    throw err;
+  }
 }
 
 function showToast(message, type = 'info') {

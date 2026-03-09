@@ -9,15 +9,19 @@ import { supabase } from '../data/supabaseClient.js';
 let _aiAvailable = null;
 
 export function hasAiAccess() {
-    // We assume AI is available if Supabase is configured.
-    // The Edge Function will return an error if the key isn't set server-side.
-    return true;
+    if (_aiAvailable === false) return false;
+    return Boolean(supabase);
 }
 
 /**
  * Call the OpenAI Chat Completions API via the Supabase Edge Function proxy.
  */
 async function callOpenAI(systemPrompt, userPrompt, jsonSchema) {
+    if (!supabase) {
+        _aiAvailable = false;
+        throw new Error('AI is not configured in this environment');
+    }
+
     const { data: sessionData } = await supabase.auth.getSession();
 
     const res = await supabase.functions.invoke('ai-proxy', {
@@ -30,7 +34,11 @@ async function callOpenAI(systemPrompt, userPrompt, jsonSchema) {
     });
 
     if (res.error) {
-        throw new Error(res.error.message || 'AI proxy call failed');
+        const errMsg = res.error.message || 'AI proxy call failed';
+        if (/function|not found|404|edge/i.test(errMsg)) {
+            _aiAvailable = false;
+        }
+        throw new Error(errMsg);
     }
 
     const content = res.data?.content;
@@ -158,4 +166,81 @@ Analyze the photo and provide a descriptive caption, an estimated year it was ta
     ];
 
     return callOpenAI(sys, user, schema);
+}
+
+/**
+ * Generate an editable wiki-style overview from place timeline entries.
+ * Falls back to a deterministic summary if AI is unavailable/fails.
+ */
+export async function generatePlaceOverview(place, entries = []) {
+    const sorted = [...entries].sort((a, b) => (a.yearStart || 0) - (b.yearStart || 0));
+    if (sorted.length === 0) {
+        return place?.description?.trim() || '';
+    }
+
+    const timelineText = sorted.map((entry, idx) => {
+        const span = entry.yearEnd ? `${entry.yearStart}-${entry.yearEnd}` : `${entry.yearStart}-present`;
+        const title = entry.title || `Entry ${idx + 1}`;
+        const summary = (entry.summary || '').replace(/\s+/g, ' ').trim();
+        const source = entry.source ? ` Source: ${entry.source}.` : '';
+        return `- ${span}: ${title}. ${summary}${source}`;
+    }).join('\n');
+
+    const schema = {
+        type: 'object',
+        properties: {
+            overview: { type: 'string' }
+        },
+        required: ['overview'],
+        additionalProperties: false
+    };
+
+    const sys = `You are a local historian writing a concise encyclopedia-style place overview.
+Write 2-5 short paragraphs in plain text (no markdown headings).
+Requirements:
+- Be factual and neutral.
+- Prefer timeline-backed facts from the provided entries.
+- Mention uncertainty briefly when entries are speculative.
+- Keep it readable for the public; avoid bullet lists.
+- Do not invent facts that are not in the timeline text.`;
+
+    const user = `Place: ${place?.name || 'Unknown place'}
+Category: ${place?.category || 'unknown'}
+Current overview (if any): ${place?.description || 'None'}
+
+Timeline entries:
+${timelineText}
+
+Return an updated overview text.`;
+
+    try {
+        const res = await callOpenAI(sys, user, schema);
+        const overview = (res?.overview || '').trim();
+        if (overview) return overview;
+    } catch (err) {
+        console.warn('AI overview generation failed, using fallback:', err);
+    }
+
+    return buildFallbackOverview(place, sorted);
+}
+
+function buildFallbackOverview(place, sortedEntries) {
+    if (!sortedEntries || sortedEntries.length === 0) return place?.description || '';
+
+    const first = sortedEntries[0];
+    const latest = sortedEntries[sortedEntries.length - 1];
+    const lines = [];
+    lines.push(`${place?.name || 'This place'} has ${sortedEntries.length} recorded timeline entr${sortedEntries.length === 1 ? 'y' : 'ies'}.`);
+
+    const firstTitle = first.title || 'an early recorded phase';
+    lines.push(`The earliest known record is ${first.yearStart}: ${firstTitle}.`);
+
+    if (latest && latest !== first) {
+        const latestRange = latest.yearEnd ? `${latest.yearStart}-${latest.yearEnd}` : `${latest.yearStart}-present`;
+        const latestTitle = latest.title || 'its latest documented phase';
+        lines.push(`The latest documented period is ${latestRange}: ${latestTitle}.`);
+    }
+
+    lines.push('This overview is auto-generated from timeline entries and can be edited manually.');
+    return lines.join(' ');
 }

@@ -1,4 +1,5 @@
 import { lookupPlaceInfo, searchAddress } from '../data/geocode.js';
+import { escapeAttr, escapeHtml, safeUrl } from '../utils/sanitize.js';
 
 export default class PlaceForm {
   constructor({ onSave, onCancel, onPickLocation, mapView }) {
@@ -11,6 +12,15 @@ export default class PlaceForm {
     this.pendingLatLng = null;
     this.lookupResult = null;
     this._searchTimer = null;
+    this._searchRequestId = 0;
+    this._isDocClickBound = false;
+    this._boundDocClick = (e) => {
+      const dropdown = this.content?.querySelector('#pf-search-results');
+      if (!dropdown) return;
+      if (!dropdown.contains(e.target) && e.target.id !== 'pf-search') {
+        dropdown.style.display = 'none';
+      }
+    };
 
     this.modal.querySelector('.modal-close').addEventListener('click', () => this.close());
     this.modal.addEventListener('click', (e) => {
@@ -86,6 +96,7 @@ export default class PlaceForm {
 
       <!-- Discovered info panel -->
       <div id="pf-discovered" style="display:none;"></div>
+      <div id="pf-error" style="display:none; color: var(--danger); font-size: var(--text-sm); margin-top: var(--space-sm);"></div>
 
       <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-xl);">
         <button class="btn btn-ghost" id="pf-cancel">Cancel</button>
@@ -150,12 +161,10 @@ export default class PlaceForm {
     });
 
     // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-      const dropdown = this.content.querySelector('#pf-search-results');
-      if (dropdown && !dropdown.contains(e.target) && e.target.id !== 'pf-search') {
-        dropdown.style.display = 'none';
-      }
-    }, { once: false });
+    if (!this._isDocClickBound) {
+      document.addEventListener('click', this._boundDocClick);
+      this._isDocClickBound = true;
+    }
 
     this.modal.style.display = 'flex';
 
@@ -174,6 +183,7 @@ export default class PlaceForm {
       resultsEl.style.display = 'none';
       return;
     }
+    const requestId = ++this._searchRequestId;
 
     resultsEl.innerHTML = `<div style="padding: var(--space-md); color: var(--text-muted); font-size: var(--text-sm);">Searching…</div>`;
     resultsEl.style.display = 'block';
@@ -186,6 +196,7 @@ export default class PlaceForm {
     }
 
     const results = await searchAddress(query, { limit: 8, bounded: false, viewbox });
+    if (requestId !== this._searchRequestId) return;
 
     if (results.length === 0) {
       resultsEl.innerHTML = `<div style="padding: var(--space-md); color: var(--text-muted); font-size: var(--text-sm);">No results found. Try adding a town name.</div>`;
@@ -207,10 +218,10 @@ export default class PlaceForm {
             <span style="font-size: 16px; flex-shrink:0;">${icon}</span>
             <div style="min-width:0;">
               <div style="font-size: var(--text-sm); font-weight: 500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${primary}
+                ${escapeHtml(primary)}
               </div>
               <div style="font-size: var(--text-xs); color: var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${secondary}
+                ${escapeHtml(secondary)}
               </div>
             </div>
           </div>
@@ -404,7 +415,7 @@ export default class PlaceForm {
   renderGroup(label, entries, info, colour) {
     let html = `
       <div style="margin-bottom: var(--space-md);">
-        <div style="font-size: var(--text-xs); font-weight: 600; color: ${colour}; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-xs);">${label}</div>
+        <div style="font-size: var(--text-xs); font-weight: 600; color: ${colour}; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-xs);">${escapeHtml(label)}</div>
     `;
 
     for (const entry of entries) {
@@ -412,6 +423,7 @@ export default class PlaceForm {
       const yearText = entry.yearStart
         ? (entry.yearEnd ? `${entry.yearStart}–${entry.yearEnd}` : `From ${entry.yearStart}`)
         : '';
+      const safeSourceUrl = safeUrl(entry.sourceUrl);
 
       const confBadge = entry.confidence === 'speculative'
         ? '<span style="background:rgba(94,93,88,0.2);color:var(--text-muted);padding:1px 6px;border-radius:99px;font-size:10px;">speculative</span>'
@@ -424,14 +436,14 @@ export default class PlaceForm {
           <label style="display:flex;gap:var(--space-sm);cursor:pointer;align-items:flex-start;">
             <input type="checkbox" class="auto-entry-check" data-index="${idx}" checked style="margin-top:3px;accent-color:${colour};" />
             <div style="flex:1;min-width:0;">
-              ${yearText ? `<div style="font-size:var(--text-xs);color:${colour};font-weight:500;">${yearText}</div>` : ''}
-              <div style="font-size:var(--text-sm);font-weight:500;">${entry.title}</div>
+              ${yearText ? `<div style="font-size:var(--text-xs);color:${colour};font-weight:500;">${escapeHtml(yearText)}</div>` : ''}
+              <div style="font-size:var(--text-sm);font-weight:500;">${escapeHtml(entry.title)}</div>
               <div style="font-size:var(--text-xs);color:var(--text-secondary);margin-top:4px;line-height:1.5;">
-                ${truncate(entry.summary, 220)}
+                ${escapeHtml(truncate(entry.summary, 220))}
               </div>
               <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;display:flex;align-items:center;gap:var(--space-sm);">
                 ${confBadge}
-                ${entry.sourceUrl ? `<a href="${entry.sourceUrl}" target="_blank" style="color:var(--accent);">Read more ↗</a>` : ''}
+                ${safeSourceUrl ? `<a href="${escapeAttr(safeSourceUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">Read more ↗</a>` : ''}
               </div>
             </div>
           </label>
@@ -451,9 +463,15 @@ export default class PlaceForm {
     if (lngInput) lngInput.value = latLng.lng.toFixed(6);
   }
 
-  save() {
+  async save() {
     const nameSelect = this.content.querySelector('#pf-name-select');
     const nameInput = this.content.querySelector('#pf-name');
+    const saveBtn = this.content.querySelector('#pf-save');
+    const errorEl = this.content.querySelector('#pf-error');
+    if (errorEl) {
+      errorEl.style.display = 'none';
+      errorEl.textContent = '';
+    }
 
     let name = nameInput.value.trim();
     if (nameSelect.style.display !== 'none' && nameSelect.value !== 'other') {
@@ -488,14 +506,53 @@ export default class PlaceForm {
       });
     }
 
-    this.onSave?.({ name, description, category, lat, lng, autoEntries: selectedEntries });
-    this.close();
+    if (!this.onSave) {
+      this.close();
+      return;
+    }
+
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+    }
+
+    try {
+      await this.onSave({ name, description, category, lat, lng, autoEntries: selectedEntries });
+      this.close();
+    } catch (err) {
+      console.error('Failed to save place:', err);
+      if (errorEl) {
+        errorEl.textContent = this.formatSaveError(err);
+        errorEl.style.display = 'block';
+      }
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Add Place';
+      }
+    }
+  }
+
+  formatSaveError(err) {
+    const message = err?.message || '';
+    if (err?.code === '42501' || /row-level security|permission denied/i.test(message)) {
+      return 'You do not have permission to add places to this project.';
+    }
+    if (/auth|jwt|not signed in/i.test(message)) {
+      return 'Please sign in and try again.';
+    }
+    return message || 'Could not save this place. Please try again.';
   }
 
   close() {
     this.modal.style.display = 'none';
     this.lookupResult = null;
     clearTimeout(this._searchTimer);
+    this._searchRequestId += 1;
+    if (this._isDocClickBound) {
+      document.removeEventListener('click', this._boundDocClick);
+      this._isDocClickBound = false;
+    }
     this.onCancel?.();
   }
 }

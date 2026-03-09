@@ -1,4 +1,5 @@
 import { getAllProjects, createProject, getSession } from '../data/store.js';
+import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 
 export default class Dashboard {
     constructor({ onSelectProject, onAuthRequest }) {
@@ -158,14 +159,14 @@ export default class Dashboard {
         projectsToShow.forEach(p => {
             const date = p.createdAt ? p.createdAt.toLocaleDateString() : '';
             grid.innerHTML += `
-            <div class="project-card" data-id="${p.id}">
+            <div class="project-card" data-id="${escapeAttr(p.id)}">
               <div class="project-card-header">
-                <h3>${p.name || 'Untitled'}</h3>
+                <h3>${escapeHtml(p.name || 'Untitled')}</h3>
                 ${p.isPublic === false ? '<span class="badge privacy-badge">Private</span>' : ''}
               </div>
-              <p class="project-card-desc">${p.description || 'No description provided.'}</p>
+              <p class="project-card-desc">${escapeHtml(p.description || 'No description provided.')}</p>
               <div class="project-card-footer">
-                <span class="date">Updated ${date}</span>
+                <span class="date">Updated ${escapeHtml(date)}</span>
                 <span class="link-arrow">→</span>
               </div>
             </div>

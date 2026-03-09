@@ -1,4 +1,5 @@
 import { getPlacesByProject, getTimeEntriesForPlace, getImagesForEntry } from '../data/store.js';
+import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 
 export default class Sidebar {
     constructor({ onPlaceClick, onAddPlace, onImport, onExport, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange }) {
@@ -139,7 +140,7 @@ export default class Sidebar {
             if (entries.length > 0) {
                 const images = await getImagesForEntry(entries[0].id);
                 if (images.length > 0 && images[0].publicUrl) {
-                    thumbHtml = `<img src="${images[0].publicUrl}" class="sidebar-place-img" />`;
+                    thumbHtml = `<img src="${escapeAttr(images[0].publicUrl)}" class="sidebar-place-img" />`;
                 }
             }
 
@@ -160,8 +161,8 @@ export default class Sidebar {
             item.innerHTML = `
         <div class="place-item-icon" style="background:${catColour}22; color:${catColour}">${catIcon}</div>
         <div class="place-item-info">
-          <div class="place-item-name">${place.name}</div>
-          <div class="place-item-meta">${meta}</div>
+          <div class="place-item-name">${escapeHtml(place.name)}</div>
+          <div class="place-item-meta">${escapeHtml(meta)}</div>
         </div>
         ${thumbHtml}
       `;

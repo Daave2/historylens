@@ -1,4 +1,5 @@
 import { getBestEntryForYear, getBestImageForYear, getTimeEntriesForPlace } from '../data/store.js';
+import { safeUrl } from '../utils/sanitize.js';
 
 export default class HoverCard {
     constructor() {
@@ -45,14 +46,18 @@ export default class HoverCard {
         this.titleEl.textContent = place.name;
 
         // Image
-        let imgHtml = '';
-        if (image && image.publicUrl) {
-            imgHtml = `<img src="${image.publicUrl}" class="hover-card-img" />`;
+        this.imageEl.innerHTML = '';
+        const imageUrl = safeUrl(image?.publicUrl);
+        if (imageUrl) {
+            const imageNode = document.createElement('img');
+            imageNode.className = 'hover-card-img';
+            imageNode.src = imageUrl;
+            imageNode.alt = 'Place image';
+            this.imageEl.appendChild(imageNode);
             this.imageEl.classList.remove('no-image');
         } else {
             this.imageEl.classList.add('no-image');
         }
-        this.imageEl.innerHTML = imgHtml;
 
 
         // Period and summary

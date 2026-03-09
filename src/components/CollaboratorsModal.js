@@ -1,4 +1,5 @@
 import { requestAccess, getProjectRoles, updateRole, removeRole } from '../data/store.js';
+import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
 
 export default class CollaboratorsModal {
   constructor() {
@@ -7,12 +8,12 @@ export default class CollaboratorsModal {
 
   createDom() {
     this.modal = document.createElement('div');
-    this.modal.className = 'modal-backdrop';
+    this.modal.className = 'modal-overlay';
     this.modal.id = 'collaborators-modal';
     this.modal.style.display = 'none';
 
     this.modal.innerHTML = `
-      <div class="modal-content" style="max-width: 500px;">
+      <div class="modal glass-panel" style="max-width: 500px; width: 90%;">
         <div class="modal-header">
           <h2 id="collab-modal-title">Collaborators</h2>
           <button class="icon-btn modal-close">
@@ -104,18 +105,18 @@ export default class CollaboratorsModal {
 
         if (r.role === 'pending') {
           actions = `
-            <button class="btn btn-sm btn-primary collab-approve" data-id="${r.id}">Approve</button>
-            <button class="btn btn-sm btn-danger collab-reject" data-id="${r.id}">Reject</button>
+            <button class="btn btn-sm btn-primary collab-approve" data-id="${escapeAttr(r.id)}">Approve</button>
+            <button class="btn btn-sm btn-danger collab-reject" data-id="${escapeAttr(r.id)}">Reject</button>
           `;
         } else {
           // Note: Owners can't be removed here (they aren't in project_roles anyway)
           // Admins can be removed by other admins (or we can restrict to owners only). Let's keep it simple.
           actions = `
-            <select class="collab-role-select" data-id="${r.id}">
+            <select class="collab-role-select" data-id="${escapeAttr(r.id)}">
               <option value="editor" ${r.role === 'editor' ? 'selected' : ''}>Editor</option>
               <option value="admin" ${r.role === 'admin' ? 'selected' : ''}>Admin</option>
             </select>
-            <button class="icon-btn btn-danger collab-remove" data-id="${r.id}" title="Remove access">
+            <button class="icon-btn btn-danger collab-remove" data-id="${escapeAttr(r.id)}" title="Remove access">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           `;
@@ -128,10 +129,10 @@ export default class CollaboratorsModal {
         html += `
           <li style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-md) 0; border-bottom: 1px solid var(--bg-hover);">
             <div style="display: flex; align-items: center; gap: var(--space-sm);">
-              <img src="${avatarUrl}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">
+              <img src="${escapeAttr(avatarUrl)}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">
               <div>
-                <div style="font-weight: 500; color: var(--text-primary);">${authorDisplay}</div>
-                <div style="font-size: var(--text-xs); color: var(--text-secondary); text-transform: uppercase;">${r.role}</div>
+                <div style="font-weight: 500; color: var(--text-primary);">${escapeHtml(authorDisplay)}</div>
+                <div style="font-size: var(--text-xs); color: var(--text-secondary); text-transform: uppercase;">${escapeHtml(r.role)}</div>
               </div>
             </div>
             <div style="display: flex; gap: var(--space-sm); align-items: center;">
@@ -173,7 +174,7 @@ export default class CollaboratorsModal {
 
     } catch (err) {
       console.error(err);
-      bodyEl.innerHTML = `<div style="color: var(--danger);">${err.message}</div>`;
+      bodyEl.innerHTML = `<div style="color: var(--danger);">${escapeHtml(err?.message || 'Failed to load collaborators')}</div>`;
     }
   }
 }

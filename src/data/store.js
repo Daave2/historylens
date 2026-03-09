@@ -69,9 +69,55 @@ const mapImage = (row) => ({
     createdAt: new Date(row.created_at)
 });
 
+const mapOverviewRevision = (row) => ({
+    id: row.id,
+    placeId: row.place_id,
+    projectId: row.project_id,
+    previousDescription: row.previous_description || '',
+    newDescription: row.new_description || '',
+    reason: row.reason || 'update',
+    createdBy: row.created_by,
+    createdAt: new Date(row.created_at)
+});
+
+const PRIMARY_IMAGE_BUCKET = 'entry_images';
+const FALLBACK_IMAGE_BUCKET = 'place-images';
+
+function encodeStoragePath(bucket, path) {
+    return bucket === PRIMARY_IMAGE_BUCKET ? path : `${bucket}::${path}`;
+}
+
+function decodeStoragePath(storagePath) {
+    if (!storagePath) return { bucket: PRIMARY_IMAGE_BUCKET, path: '' };
+    const sep = storagePath.indexOf('::');
+    if (sep === -1) return { bucket: PRIMARY_IMAGE_BUCKET, path: storagePath };
+    return {
+        bucket: storagePath.slice(0, sep),
+        path: storagePath.slice(sep + 2)
+    };
+}
+
+function normalizePlaceCategory(category) {
+    const raw = (category || '').toString().trim().toLowerCase();
+    if (!raw) return 'residential';
+
+    const standard = new Set(['residential', 'commercial', 'landmark', 'natural', 'infrastructure']);
+    if (standard.has(raw)) return raw;
+
+    if (/(guest|hotel|inn|pub|shop|store|market|cafe|restaurant|bar|commercial)/.test(raw)) return 'commercial';
+    if (/(church|chapel|museum|monument|historic|landmark|memorial|castle|heritage)/.test(raw)) return 'landmark';
+    if (/(park|wood|forest|garden|river|lake|beach|natural|meadow)/.test(raw)) return 'natural';
+    if (/(station|rail|railway|bridge|road|school|hospital|infrastructure)/.test(raw)) return 'infrastructure';
+    if (/(house|home|residential|flat|apartment|dwelling)/.test(raw)) return 'residential';
+
+    // Safe fallback for legacy DB constraints.
+    return 'residential';
+}
+
 // Helper for generating public URLs
 const getImageUrl = (path) => {
-    const { data } = supabase.storage.from('entry_images').getPublicUrl(path);
+    const { bucket, path: objectPath } = decodeStoragePath(path);
+    const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
     return data.publicUrl;
 };
 
@@ -254,13 +300,14 @@ export async function deleteProject(projectId) {
 // ── Places ────────────────────────────────────────────────
 
 export async function createPlace({ projectId, name, description, lat, lng, category }) {
+    const normalizedCategory = normalizePlaceCategory(category);
     const { data, error } = await supabase.from('places').insert({
         project_id: projectId,
         name: name || 'Unnamed Place',
         description: description || null,
         lat,
         lng,
-        category: category || 'residential'
+        category: normalizedCategory
     }).select().single();
     if (error) { console.error(error); throw error; }
     return mapPlace(data);
@@ -270,6 +317,7 @@ export async function updatePlace(id, changes) {
     const update = { ...changes };
     if (changes.projectId) { update.project_id = changes.projectId; delete update.projectId; }
     if (changes.description !== undefined) { update.description = changes.description || null; }
+    if (changes.category !== undefined) { update.category = normalizePlaceCategory(changes.category); }
 
     const { data, error } = await supabase.from('places').update(update).eq('id', id).select().single();
     if (error) { console.error(error); throw error; }
@@ -277,6 +325,16 @@ export async function updatePlace(id, changes) {
 }
 
 export async function deletePlace(id) {
+    // Best-effort media cleanup to avoid orphaned storage objects.
+    try {
+        const entries = await getTimeEntriesForPlace(id);
+        for (const entry of entries) {
+            await deleteTimeEntry(entry.id);
+        }
+    } catch (cleanupErr) {
+        console.warn('Place media cleanup failed before delete:', cleanupErr);
+    }
+
     const { error } = await supabase.from('places').delete().eq('id', id);
     if (error) console.error(error);
 }
@@ -323,6 +381,16 @@ export async function updateTimeEntry(id, changes) {
 }
 
 export async function deleteTimeEntry(id) {
+    // Best-effort media cleanup so object storage doesn't leak on deletes.
+    try {
+        const images = await getImagesForEntry(id);
+        for (const image of images) {
+            await deleteImage(image.id);
+        }
+    } catch (cleanupErr) {
+        console.warn('Entry media cleanup failed before delete:', cleanupErr);
+    }
+
     const { error } = await supabase.from('time_entries').delete().eq('id', id);
     if (error) console.error(error);
 }
@@ -368,16 +436,24 @@ export async function getProjectYearRange(projectId) {
 export async function addImage({ timeEntryId, blob, caption, yearTaken, credit }) {
     const ext = blob.type.split('/')[1] || 'jpg';
     const filename = `${timeEntryId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+    const uploadOpts = { cacheControl: '3600', upsert: false };
 
-    const { error: storageError } = await supabase.storage.from('entry_images').upload(filename, blob, {
-        cacheControl: '3600',
-        upsert: false
-    });
-    if (storageError) { console.error('Upload error', storageError); throw storageError; }
+    let usedBucket = PRIMARY_IMAGE_BUCKET;
+    let uploadError = null;
+    for (const bucket of [PRIMARY_IMAGE_BUCKET, FALLBACK_IMAGE_BUCKET]) {
+        const { error } = await supabase.storage.from(bucket).upload(filename, blob, uploadOpts);
+        if (!error) {
+            usedBucket = bucket;
+            uploadError = null;
+            break;
+        }
+        uploadError = error;
+    }
+    if (uploadError) { console.error('Upload error', uploadError); throw uploadError; }
 
     const { data, error } = await supabase.from('images').insert({
         time_entry_id: timeEntryId,
-        storage_path: filename,
+        storage_path: encodeStoragePath(usedBucket, filename),
         caption: caption || '',
         year_taken: yearTaken || null,
         credit: credit || ''
@@ -400,7 +476,13 @@ export async function getImagesForEntry(timeEntryId) {
 
 export async function deleteImage(id) {
     const { data } = await supabase.from('images').select('storage_path').eq('id', id).single();
-    if (data) await supabase.storage.from('entry_images').remove([data.storage_path]);
+    if (data) {
+        const { bucket, path } = decodeStoragePath(data.storage_path);
+        const { error: storageError } = await supabase.storage.from(bucket).remove([path]);
+        if (storageError) {
+            console.warn('Failed to delete storage object:', storageError);
+        }
+    }
     const { error } = await supabase.from('images').delete().eq('id', id);
     if (error) console.error(error);
 }
@@ -416,6 +498,69 @@ export async function getBestImageForYear(placeId, year) {
     }
     if (allImages.length === 0) return null;
     allImages.sort((a, b) => Math.abs(a.effectiveYear - year) - Math.abs(b.effectiveYear - year));
+    return allImages[0];
+}
+
+// ── Overview History ───────────────────────────────────────
+
+export async function createOverviewRevision({ placeId, previousDescription, newDescription, reason = 'regenerate' }) {
+    const place = await getPlace(placeId);
+    if (!place) throw new Error('Place not found');
+
+    const { data, error } = await supabase.from('place_overview_history').insert({
+        place_id: placeId,
+        project_id: place.projectId,
+        previous_description: previousDescription || null,
+        new_description: newDescription || null,
+        reason
+    }).select().single();
+
+    if (error) { console.error(error); throw error; }
+    return mapOverviewRevision(data);
+}
+
+export async function getOverviewHistory(placeId, limit = 12) {
+    const { data, error } = await supabase
+        .from('place_overview_history')
+        .select('*')
+        .eq('place_id', placeId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (error) { console.error(error); return []; }
+    return (data || []).map(mapOverviewRevision);
+}
+
+export async function restoreOverviewRevision(revisionId) {
+    const { data: revision, error } = await supabase
+        .from('place_overview_history')
+        .select('*')
+        .eq('id', revisionId)
+        .single();
+
+    if (error) { console.error(error); throw error; }
+    if (!revision) throw new Error('Revision not found');
+
+    const place = await getPlace(revision.place_id);
+    if (!place) throw new Error('Place not found');
+
+    const currentDescription = place.description || '';
+    const restoredDescription = revision.previous_description || '';
+    const updatedPlace = await updatePlace(place.id, { description: restoredDescription });
+
+    // Best effort audit trail for restore operations.
+    try {
+        await createOverviewRevision({
+            placeId: place.id,
+            previousDescription: currentDescription,
+            newDescription: restoredDescription,
+            reason: 'restore'
+        });
+    } catch (err) {
+        console.warn('Failed to log overview restore revision:', err);
+    }
+
+    return updatedPlace;
 }
 
 // ── Comments ────────────────────────────────────────────────

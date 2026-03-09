@@ -411,35 +411,17 @@ export async function lookupPlaceInfo(lat, lng, customName = '') {
     // Build entries from OSM/Overpass (filtered by customName to reduce noise)
     info.autoEntries = buildAutoEntries(geocode, nearby, customName);
 
-    // Phase 2: Wikipedia + building estimation (parallel)
-    // Build search queries from location context. Keep it highly specific to avoid generic city-wide noise.
-    const searchQueries = [];
-    const targetName = customName || info.suggestedName;
+    // Always include one deterministic seed entry from the exact selected location.
+    const seedEntry = buildSeedEntry(geocode, customName, info.suggestedCategories[0] || '');
+    if (seedEntry) {
+        info.autoEntries.unshift(seedEntry);
+    }
 
-    if (targetName && geocode.city) searchQueries.push(`${targetName} ${geocode.city}`);
-    if (targetName && geocode.suburb) searchQueries.push(`${targetName} ${geocode.suburb}`);
-    if (geocode.road && geocode.city && !targetName.includes(geocode.road)) searchQueries.push(`${geocode.road} ${geocode.city}`);
-
-    // Linked Wikipedia article (direct link from OSM)
+    // Only use direct Wikipedia links explicitly attached to this OSM object.
+    // Avoid open Wikipedia search because it introduces high-noise, non-local matches.
     const directWikiRef = geocode.wikipedia || nearby.find(f => f.wikipedia)?.wikipedia;
-
-    const [wikiSearchResults, directSummary] = await Promise.all([
-        searchWikipedia(searchQueries),
-        directWikiRef ? getWikipediaSummary(directWikiRef) : Promise.resolve(null)
-    ]);
-
-    // Get full summaries for the most relevant search results
-    const wikiSummaries = await getWikipediaSummaries(
-        wikiSearchResults.filter(r =>
-            // Filter for relevant results (must match city/road/name to avoid random noise)
-            r.snippet.toLowerCase().includes((geocode.city || '').toLowerCase()) ||
-            r.snippet.toLowerCase().includes((geocode.road || '').toLowerCase()) ||
-            r.snippet.toLowerCase().includes((geocode.suburb || '').toLowerCase()) ||
-            r.snippet.toLowerCase().includes((targetName || '').toLowerCase())
-        )
-    );
-
-    info.wikiArticles = wikiSummaries;
+    const directSummary = directWikiRef ? await getWikipediaSummary(directWikiRef) : null;
+    info.wikiArticles = directSummary ? [directSummary] : [];
 
     // Direct Wikipedia link gets priority
     if (directSummary) {
@@ -472,22 +454,6 @@ export async function lookupPlaceInfo(lat, lng, customName = '') {
         });
     }
 
-    // Add highly specific Wikipedia search results (if any matched our strict filters)
-    for (const article of wikiSummaries) {
-        if (article.extract && article.title.length > 0) {
-            info.autoEntries.push({
-                title: article.title,
-                summary: article.extract,
-                source: `Wikipedia`,
-                sourceUrl: article.url || '',
-                sourceType: 'archive',
-                confidence: 'likely',
-                yearStart: extractEarliestYear(article.extract),
-                yearEnd: null
-            });
-        }
-    }
-
     // De-duplicate entries by title
     const seen = new Set();
     info.autoEntries = info.autoEntries.filter(e => {
@@ -498,6 +464,42 @@ export async function lookupPlaceInfo(lat, lng, customName = '') {
     });
 
     return info;
+}
+
+function buildSeedEntry(geocode, customName = '', category = '') {
+    if (!geocode) return null;
+
+    const addressParts = [
+        geocode.houseNumber && geocode.road ? `${geocode.houseNumber} ${geocode.road}` : '',
+        geocode.suburb || '',
+        geocode.city || '',
+        geocode.postcode || ''
+    ].filter(Boolean);
+
+    const placeLabel = customName || geocode.placeName || geocode.displayName || 'This location';
+    const lines = [];
+    if (addressParts.length > 0) {
+        lines.push(`Address: ${addressParts.join(', ')}.`);
+    } else if (geocode.fullAddress) {
+        lines.push(`Address: ${geocode.fullAddress}.`);
+    }
+    if (category) {
+        lines.push(`Current type: ${category}.`);
+    }
+    if (geocode.operator) lines.push(`Operator: ${geocode.operator}.`);
+    if (geocode.website) lines.push(`Website: ${geocode.website}.`);
+
+    lines.push('Seed entry created from map/address data. Add dated historical evidence to refine this timeline.');
+
+    return {
+        title: `${placeLabel} — Current record`,
+        summary: lines.join(' '),
+        source: 'OpenStreetMap',
+        sourceType: 'archive',
+        confidence: 'likely',
+        yearStart: new Date().getFullYear(),
+        yearEnd: null
+    };
 }
 
 // ── Helpers ───────────────────────────────────────────────

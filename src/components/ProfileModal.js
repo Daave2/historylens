@@ -1,3 +1,5 @@
+import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
+
 export default class ProfileModal {
     constructor({ onSave }) {
         this.modal = document.getElementById('profile-modal');
@@ -20,10 +22,10 @@ export default class ProfileModal {
       <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-lg);">My Profile</h2>
       
       <div style="display: flex; gap: var(--space-md); margin-bottom: var(--space-xl); align-items: center;">
-        <img src="${avatarUrl}" alt="Avatar" style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 2px solid var(--glass-border);">
+        <img src="${escapeAttr(avatarUrl)}" alt="Avatar" style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 2px solid var(--glass-border);">
         <div style="flex: 1;">
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: 2px;">Account Email</div>
-          <div style="font-weight: 500;">${currentProfile.email || 'Unknown'}</div>
+          <div style="font-weight: 500;">${escapeHtml(currentProfile.email || 'Unknown')}</div>
         </div>
       </div>
 
@@ -31,7 +33,7 @@ export default class ProfileModal {
         <label class="form-label">Display Name</label>
         <input class="form-input" id="profile-display-name" type="text" 
                placeholder="e.g. Jane Doe" 
-               value="${currentProfile.display_name || ''}" />
+               value="${escapeAttr(currentProfile.display_name || '')}" />
         <span class="form-hint">This name will be shown publicly when you add places or entries.</span>
       </div>
 

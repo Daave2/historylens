@@ -1,4 +1,5 @@
 import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject } from '../data/store.js';
+import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
 
 export default class ProjectSettings {
     constructor() {
@@ -7,12 +8,12 @@ export default class ProjectSettings {
 
     createDom() {
         this.modal = document.createElement('div');
-        this.modal.className = 'modal-backdrop';
+        this.modal.className = 'modal-overlay';
         this.modal.id = 'project-settings-modal';
         this.modal.style.display = 'none';
 
         this.modal.innerHTML = `
-      <div class="modal-content" style="max-width: 600px; width: 90%; padding: 0;">
+      <div class="modal glass-panel" style="max-width: 600px; width: 90%; padding: 0;">
         <div class="modal-header" style="padding: var(--space-md) var(--space-xl); border-bottom: 1px solid var(--glass-border);">
           <h2 id="ps-modal-title">Project Settings</h2>
           <button class="icon-btn modal-close">
@@ -151,12 +152,12 @@ export default class ProjectSettings {
       
       <div class="form-group">
         <label class="form-label">Project Name</label>
-        <input type="text" id="set-proj-name" class="form-input" value="${this.project.name || ''}" />
+        <input type="text" id="set-proj-name" class="form-input" value="${escapeAttr(this.project.name || '')}" />
       </div>
 
       <div class="form-group">
         <label class="form-label">Description</label>
-        <textarea id="set-proj-desc" class="form-textarea" rows="3">${this.project.description || ''}</textarea>
+        <textarea id="set-proj-desc" class="form-textarea" rows="3">${escapeHtml(this.project.description || '')}</textarea>
       </div>
 
       <div class="form-group" style="display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-xl);">
@@ -207,7 +208,7 @@ export default class ProjectSettings {
         });
 
         container.querySelector('#set-proj-centre').addEventListener('click', async (e) => {
-            const btn = e.target;
+            const btn = e.currentTarget;
             const originalText = btn.innerHTML;
             btn.innerHTML = 'Updating...';
             try {
@@ -240,16 +241,16 @@ export default class ProjectSettings {
 
                 if (r.role === 'pending') {
                     actions = `
-            <button class="btn btn-sm btn-primary collab-approve" data-id="${r.id}">Approve</button>
-            <button class="btn btn-sm btn-danger collab-reject" data-id="${r.id}">Reject</button>
+            <button class="btn btn-sm btn-primary collab-approve" data-id="${escapeAttr(r.id)}">Approve</button>
+            <button class="btn btn-sm btn-danger collab-reject" data-id="${escapeAttr(r.id)}">Reject</button>
           `;
                 } else {
                     actions = `
-            <select class="collab-role-select" data-id="${r.id}">
+            <select class="collab-role-select" data-id="${escapeAttr(r.id)}">
               <option value="editor" ${r.role === 'editor' ? 'selected' : ''}>Editor</option>
               <option value="admin" ${r.role === 'admin' ? 'selected' : ''}>Admin</option>
             </select>
-            <button class="icon-btn btn-danger collab-remove" data-id="${r.id}" title="Remove access">
+            <button class="icon-btn btn-danger collab-remove" data-id="${escapeAttr(r.id)}" title="Remove access">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           `;
@@ -262,10 +263,10 @@ export default class ProjectSettings {
                 html += `
           <li style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-md) 0; border-bottom: 1px solid var(--bg-hover);">
             <div style="display: flex; align-items: center; gap: var(--space-sm);">
-              <img src="${avatarUrl}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">
+              <img src="${escapeAttr(avatarUrl)}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">
               <div>
-                <div style="font-weight: 500; color: var(--text-primary);">${authorDisplay}</div>
-                <div style="font-size: var(--text-xs); color: var(--text-secondary); text-transform: uppercase;">${r.role}</div>
+                <div style="font-weight: 500; color: var(--text-primary);">${escapeHtml(authorDisplay)}</div>
+                <div style="font-size: var(--text-xs); color: var(--text-secondary); text-transform: uppercase;">${escapeHtml(r.role)}</div>
               </div>
             </div>
             <div style="display: flex; gap: var(--space-sm); align-items: center;">
@@ -307,7 +308,7 @@ export default class ProjectSettings {
 
         } catch (err) {
             console.error(err);
-            container.innerHTML = `<div style="color: var(--danger);">${err.message}</div>`;
+            container.innerHTML = `<div style="color: var(--danger);">${escapeHtml(err?.message || 'Failed to load collaborators')}</div>`;
         }
     }
 
@@ -329,7 +330,7 @@ export default class ProjectSettings {
               <option value="">Select a user...</option>
               ${bannableRoles.map(r => {
                 const name = r.email.display_name || (r.email.email ? r.email.email.split('@')[0] : 'Unknown');
-                return `<option value="${r.user_id}">${name} (${r.role})</option>`;
+                return `<option value="${escapeAttr(r.user_id)}">${escapeHtml(name)} (${escapeHtml(r.role)})</option>`;
             }).join('')}
             </select>
             <button id="mod-ban-btn" class="btn btn-danger">Ban</button>
@@ -348,10 +349,10 @@ export default class ProjectSettings {
                 const authorDisplay = r.email.display_name || (r.email.email ? r.email.email.split('@')[0] : 'Unknown');
                 html += `
           <li style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--bg-hover);">
-            <div style="font-weight: 500; color: var(--text-primary);">${authorDisplay}</div>
+            <div style="font-weight: 500; color: var(--text-primary);">${escapeHtml(authorDisplay)}</div>
             <div style="display: flex; gap: var(--space-sm); align-items: center;">
-              <button class="btn btn-sm btn-ghost mod-unban" data-id="${r.id}">Unban</button>
-              <button class="btn btn-sm btn-danger mod-wipe" data-userid="${r.user_id}" title="Permanently delete all their comments and map entries">Wipe Contributions</button>
+              <button class="btn btn-sm btn-ghost mod-unban" data-id="${escapeAttr(r.id)}">Unban</button>
+              <button class="btn btn-sm btn-danger mod-wipe" data-userid="${escapeAttr(r.user_id)}" title="Permanently delete all their comments and map entries">Wipe Contributions</button>
             </div>
           </li>
         `;
@@ -403,7 +404,7 @@ export default class ProjectSettings {
 
         } catch (err) {
             console.error(err);
-            container.innerHTML = `<div style="color: var(--danger);">${err.message}</div>`;
+            container.innerHTML = `<div style="color: var(--danger);">${escapeHtml(err?.message || 'Failed to load moderation controls')}</div>`;
         }
     }
 
@@ -419,7 +420,7 @@ export default class ProjectSettings {
         </p>
         
         <div class="form-group">
-          <label class="form-label" style="font-size: var(--text-xs);">Please type <strong>${this.project.name}</strong> to confirm:</label>
+          <label class="form-label" style="font-size: var(--text-xs);">Please type <strong>${escapeHtml(this.project.name)}</strong> to confirm:</label>
           <input type="text" id="danger-confirm-name" class="form-input" style="border-color: var(--danger);" autocomplete="off" />
         </div>
 
@@ -443,7 +444,7 @@ export default class ProjectSettings {
                 try {
                     await deleteProject(this.project.id);
                     // Redirect user to home or dashboard after deletion
-                    window.location.href = '/';
+                    window.location.href = import.meta.env.BASE_URL || '/';
                 } catch (err) {
                     console.error(err);
                     alert("Failed to delete project: " + err.message);

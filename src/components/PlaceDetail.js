@@ -1,15 +1,18 @@
-import { getTimeEntriesForPlace, getImagesForEntry, deleteTimeEntry, deletePlace, createTimeEntry, getProfiles, getComments, addComment } from '../data/store.js';
+import { getTimeEntriesForPlace, getImagesForEntry, deleteTimeEntry, deletePlace, createTimeEntry, getProfiles, getComments, addComment, updatePlace, getPlace, getOverviewHistory, restoreOverviewRevision, createOverviewRevision } from '../data/store.js';
 import { hasAiAccess, generateSpeculativeContext } from '../ai/ai.js';
+import { safeUrl } from '../utils/sanitize.js';
 
 export default class PlaceDetail {
-  constructor({ onAddEntry, onEditEntry, onDeletePlace, onClose }) {
+  constructor({ onAddEntry, onEditEntry, onDeletePlace, onRegenerateOverview, onClose }) {
     this.modal = document.getElementById('place-detail-modal');
     this.content = document.getElementById('place-detail-content');
     this.onAddEntry = onAddEntry;
     this.onEditEntry = onEditEntry;
     this.onDeletePlace = onDeletePlace;
+    this.onRegenerateOverview = onRegenerateOverview;
     this.onClose = onClose;
     this.place = null;
+    this.activeTab = 'overview';
 
     // Close button
     this.modal.querySelector('.modal-close').addEventListener('click', () => this.close());
@@ -20,11 +23,14 @@ export default class PlaceDetail {
 
   async show(place, isReadOnly = false, currentUser = null, currentUserRole = null) {
     this.place = place;
-    const entries = await getTimeEntriesForPlace(place.id);
-    const comments = await getComments(place.id);
+    const [entries, comments, overviewHistory] = await Promise.all([
+      getTimeEntriesForPlace(place.id),
+      getComments(place.id),
+      getOverviewHistory(place.id)
+    ]);
 
     // Fetch user profiles for attribution
-    const userIds = [place.createdBy, ...entries.map(e => e.createdBy), ...comments.map(c => c.user_id)];
+    const userIds = [place.createdBy, ...entries.map(e => e.createdBy), ...comments.map(c => c.user_id), ...overviewHistory.map(r => r.createdBy)];
     const profiles = await getProfiles(userIds);
 
     const catColour = {
@@ -33,6 +39,52 @@ export default class PlaceDetail {
     }[place.category] || '#a78bfa';
 
     const catLabel = place.category.charAt(0).toUpperCase() + place.category.slice(1);
+    const overviewText = (place.description || '').trim();
+    const canManageOverview = !isReadOnly && (
+      currentUserRole === 'owner' ||
+      currentUserRole === 'admin' ||
+      (currentUserRole === 'editor' && currentUser && place.createdBy === currentUser.id)
+    );
+    const historyHtml = overviewHistory.length === 0
+      ? `<div style="font-size: var(--text-xs); color: var(--text-muted);">No overview revisions yet.</div>`
+      : overviewHistory.map(rev => {
+        const profile = profiles[rev.createdBy];
+        const author = profile?.display_name || (profile?.email ? profile.email.split('@')[0] : 'Unknown');
+        const reasonLabel = {
+          regenerate: 'Updated from timeline',
+          restore: 'Restored previous version',
+          manual_edit: 'Manual edit'
+        }[rev.reason] || rev.reason || 'Updated';
+
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap: var(--space-sm); padding: var(--space-xs) 0; border-bottom: 1px solid var(--glass-border);">
+            <div style="min-width:0;">
+              <div style="font-size: var(--text-xs); color: var(--text-primary);">${escapeHtml(reasonLabel)}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${new Date(rev.createdAt).toLocaleString()} · ${escapeHtml(author)}</div>
+            </div>
+            ${canManageOverview ? `<button class="btn btn-ghost restore-overview-btn" data-revision-id="${escapeAttr(rev.id)}" style="padding: 4px 8px; font-size: 11px;">Restore</button>` : ''}
+          </div>
+        `;
+      }).join('');
+
+    const overviewHtml = `
+      <div class="place-overview-panel" style="line-height: 1.7; color: var(--text-secondary);">
+        ${overviewText
+          ? `<div id="place-overview-text" style="white-space: pre-wrap;">${escapeHtml(overviewText)}</div>`
+          : `<div id="place-overview-empty" style="color: var(--text-muted);">No overview yet. Add timeline entries to auto-generate one.</div>`
+        }
+        ${canManageOverview ? `
+          <div style="margin-top: var(--space-md); display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+            <button class="btn btn-ghost" id="detail-edit-overview">Edit overview</button>
+            <button class="btn btn-ghost" id="detail-refresh-overview">Update from timeline</button>
+          </div>
+        ` : ''}
+        <div style="margin-top: var(--space-lg); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
+          <div style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-sm); text-transform: uppercase; letter-spacing: 0.08em;">Overview History</div>
+          <div style="display:flex; flex-direction:column; gap: var(--space-xs);">${historyHtml}</div>
+        </div>
+      </div>
+    `;
 
     let timelineHtml = '';
     if (entries.length === 0) {
@@ -56,8 +108,9 @@ export default class PlaceDetail {
         const images = await getImagesForEntry(entry.id);
         const imagesHtml = images.length > 0
           ? `<div class="timeline-images">${images.map(img => {
-            if (!img.publicUrl) return '';
-            return `<img src="${img.publicUrl}" alt="${img.caption || ''}" title="${img.caption || ''}" data-lightbox />`;
+            const imageUrl = safeUrl(img.publicUrl);
+            if (!imageUrl) return '';
+            return `<img src="${escapeAttr(imageUrl)}" alt="${escapeAttr(img.caption || '')}" title="${escapeAttr(img.caption || '')}" data-lightbox />`;
           }).join('')}</div>`
           : '';
 
@@ -65,7 +118,9 @@ export default class PlaceDetail {
           ? `${entry.yearStart} – ${entry.yearEnd}`
           : `${entry.yearStart} – present`;
 
-        const confClass = entry.confidence || 'likely';
+        const confClass = ['verified', 'likely', 'speculative'].includes(entry.confidence)
+          ? entry.confidence
+          : 'likely';
 
         // Attribution logic
         const profile = profiles[entry.createdBy];
@@ -75,21 +130,21 @@ export default class PlaceDetail {
         }
 
         timelineHtml += `
-          <div class="timeline-entry" data-entry-id="${entry.id}">
+          <div class="timeline-entry" data-entry-id="${escapeAttr(entry.id)}">
             <div class="timeline-dot ${confClass}"></div>
             <div class="timeline-year">${yearRange}</div>
-            <div class="timeline-title">${entry.title || 'Untitled entry'}</div>
-            <div class="timeline-summary">${entry.summary || ''}</div>
+            <div class="timeline-title">${escapeHtml(entry.title || 'Untitled entry')}</div>
+            <div class="timeline-summary">${escapeHtml(entry.summary || '')}</div>
             ${imagesHtml}
             <div class="timeline-source">
               <span class="confidence-badge ${confClass}">${confClass}</span>
-              ${entry.source ? `<span>· ${entry.source}</span>` : ''}
-              <span>· Added by ${authorDisplay}</span>
+              ${entry.source ? `<span>· ${escapeHtml(entry.source)}</span>` : ''}
+              <span>· Added by ${escapeHtml(authorDisplay)}</span>
               ${(!isReadOnly && (currentUserRole === 'owner' || currentUserRole === 'admin' || (currentUser && entry.createdBy === currentUser.id))) ? `
-              <button class="icon-btn edit-entry-btn" data-entry-id="${entry.id}" title="Edit entry">
+              <button class="icon-btn edit-entry-btn" data-entry-id="${escapeAttr(entry.id)}" title="Edit entry">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
-              <button class="icon-btn delete-entry-btn" data-entry-id="${entry.id}" title="Delete entry">
+              <button class="icon-btn delete-entry-btn" data-entry-id="${escapeAttr(entry.id)}" title="Delete entry">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               </button>
               ` : ''}
@@ -126,10 +181,10 @@ export default class PlaceDetail {
             </div>
             <div class="comment-content" style="flex: 1;">
               <div style="font-size: var(--text-sm); display: flex; justify-content: space-between; margin-bottom: 4px;">
-                <strong>${authorDisplay}</strong>
+                <strong>${escapeHtml(authorDisplay)}</strong>
                 <span style="color: var(--text-muted); font-size: var(--text-xs);">${new Date(comment.created_at).toLocaleDateString()}</span>
               </div>
-              <div style="font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap;">${comment.content}</div>
+              <div style="font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap;">${escapeHtml(comment.content || '')}</div>
             </div>
           </div>
         `;
@@ -165,33 +220,18 @@ export default class PlaceDetail {
     this.content.innerHTML = `
       <div class="place-detail-header">
         <div>
-          <h2>${place.name}</h2>
+          <h2>${escapeHtml(place.name)}</h2>
           <span class="place-category-badge" style="background:${catColour}22; color:${catColour}">
-            ${catLabel}
+            ${escapeHtml(catLabel)}
           </span>
           <span style="font-size: var(--text-xs); color: var(--text-muted); margin-left: var(--space-sm);">
             ${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}
           </span>
           <div style="font-size: var(--text-xs); color: var(--text-secondary); margin-top: var(--space-xs);">
-            Added by ${placeAuthor} on ${place.createdAt.toLocaleDateString()}
+            Added by ${escapeHtml(placeAuthor)} on ${place.createdAt.toLocaleDateString()}
           </div>
         </div>
       </div>
-
-      ${place.description ? `
-      <div class="place-detail-description" style="
-        font-family: var(--font-body); 
-        font-size: var(--text-sm); 
-        line-height: 1.6; 
-        color: var(--text-secondary); 
-        margin: var(--space-md) 0 var(--space-lg) 0; 
-        padding-bottom: var(--space-md); 
-        border-bottom: 1px solid var(--glass-border);
-        white-space: pre-wrap;
-      ">
-        ${place.description}
-      </div>
-      ` : ''}
 
       ${!isReadOnly ? `
       <div class="place-detail-actions">
@@ -209,14 +249,18 @@ export default class PlaceDetail {
       ` : ''}
 
       <div class="detail-tabs" style="display: flex; gap: var(--space-md); border-bottom: 1px solid var(--glass-border); margin: var(--space-lg) 0;">
-        <button class="tab-btn active" data-tab="timeline" style="background: none; border: none; padding: var(--space-sm) 0; color: var(--text-primary); font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--accent);">Timeline</button>
-        <button class="tab-btn" data-tab="discussion" style="background: none; border: none; padding: var(--space-sm) 0; color: var(--text-muted); font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent;">Discussion <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
+        <button class="tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" data-tab="overview" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'overview' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'overview' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'overview' ? 'var(--accent)' : 'transparent'};">Overview</button>
+        <button class="tab-btn ${this.activeTab === 'timeline' ? 'active' : ''}" data-tab="timeline" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'timeline' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'timeline' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'timeline' ? 'var(--accent)' : 'transparent'};">Timeline</button>
+        <button class="tab-btn ${this.activeTab === 'discussion' ? 'active' : ''}" data-tab="discussion" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'discussion' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'discussion' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'discussion' ? 'var(--accent)' : 'transparent'};">Discussion <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
       </div>
 
-      <div id="tab-timeline" class="tab-content" style="display: block;">
+      <div id="tab-overview" class="tab-content" style="display: ${this.activeTab === 'overview' ? 'block' : 'none'};">
+        ${overviewHtml}
+      </div>
+      <div id="tab-timeline" class="tab-content" style="display: ${this.activeTab === 'timeline' ? 'block' : 'none'};">
         ${timelineHtml}
       </div>
-      <div id="tab-discussion" class="tab-content" style="display: none;">
+      <div id="tab-discussion" class="tab-content" style="display: ${this.activeTab === 'discussion' ? 'block' : 'none'};">
         ${commentsHtml}
       </div>
     `;
@@ -239,7 +283,114 @@ export default class PlaceDetail {
         tab.style.fontWeight = '600';
         tab.style.color = 'var(--text-primary)';
         tab.style.borderBottomColor = 'var(--accent)';
+        this.activeTab = tab.dataset.tab;
         this.content.querySelector(`#tab-${tab.dataset.tab}`).style.display = 'block';
+      });
+    });
+
+    const editOverviewBtn = this.content.querySelector('#detail-edit-overview');
+    if (editOverviewBtn) {
+      editOverviewBtn.addEventListener('click', () => {
+        const currentText = (place.description || '').trim();
+        const panel = this.content.querySelector('#tab-overview');
+        if (!panel) return;
+
+        panel.innerHTML = `
+          <div class="form-group">
+            <label class="form-label">Overview</label>
+            <textarea id="detail-overview-input" class="form-textarea" style="min-height: 180px;">${escapeHtml(currentText)}</textarea>
+          </div>
+          <div style="display:flex; gap: var(--space-sm); justify-content:flex-end;">
+            <button class="btn btn-ghost" id="detail-overview-cancel">Cancel</button>
+            <button class="btn btn-primary" id="detail-overview-save">Save Overview</button>
+          </div>
+        `;
+
+        panel.querySelector('#detail-overview-cancel')?.addEventListener('click', async () => {
+          const refreshed = await getPlace(place.id);
+          await this.show(refreshed || place, isReadOnly, currentUser, currentUserRole);
+          const overviewTab = this.content.querySelector('.tab-btn[data-tab="overview"]');
+          overviewTab?.click();
+        });
+
+        panel.querySelector('#detail-overview-save')?.addEventListener('click', async () => {
+          const input = panel.querySelector('#detail-overview-input');
+          const nextText = input?.value?.trim() || '';
+          try {
+            const previousText = place.description || '';
+            await updatePlace(place.id, { description: nextText });
+            if (nextText !== previousText) {
+              // Best-effort audit trail; don't block save on history logging issues.
+              try {
+                await createOverviewRevision({
+                  placeId: place.id,
+                  previousDescription: previousText,
+                  newDescription: nextText,
+                  reason: 'manual_edit'
+                });
+              } catch (historyErr) {
+                console.warn('Could not log overview revision:', historyErr);
+              }
+            }
+            const updated = await getPlace(place.id);
+            await this.show(updated || place, isReadOnly, currentUser, currentUserRole);
+            const overviewTab = this.content.querySelector('.tab-btn[data-tab="overview"]');
+            overviewTab?.click();
+          } catch (err) {
+            console.error(err);
+            alert('Failed to save overview.');
+          }
+        });
+      });
+    }
+
+    const refreshOverviewBtn = this.content.querySelector('#detail-refresh-overview');
+    if (refreshOverviewBtn) {
+      refreshOverviewBtn.addEventListener('click', async () => {
+        const confirmed = await this.confirmAction(
+          'Regenerate overview from timeline? This may overwrite manual edits. You can undo once after updating.',
+          'Update Overview'
+        );
+        if (!confirmed) return;
+
+        try {
+          refreshOverviewBtn.disabled = true;
+          refreshOverviewBtn.textContent = 'Updating...';
+          const result = await this.onRegenerateOverview?.(place.id);
+          if (result?.updated) {
+            await this.show(result.place || place, isReadOnly, currentUser, currentUserRole);
+            this.content.querySelector('.tab-btn[data-tab="overview"]')?.click();
+            await this.showNotice('Overview updated from timeline entries.', 'Overview Updated');
+          } else {
+            await this.showNotice('Overview is already up to date.', 'No Changes');
+          }
+        } catch (err) {
+          console.error(err);
+          await this.showNotice('Failed to update overview.', 'Update Failed');
+        } finally {
+          refreshOverviewBtn.disabled = false;
+          refreshOverviewBtn.textContent = 'Update from timeline';
+        }
+      });
+    }
+
+    this.content.querySelectorAll('.restore-overview-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const revisionId = btn.dataset.revisionId;
+        if (!revisionId) return;
+        const confirmed = await this.confirmAction(
+          'Restore this overview version? This will replace the current overview text.',
+          'Restore Version'
+        );
+        if (!confirmed) return;
+        try {
+          const restoredPlace = await restoreOverviewRevision(revisionId);
+          await this.show(restoredPlace || place, isReadOnly, currentUser, currentUserRole);
+          this.content.querySelector('.tab-btn[data-tab="overview"]')?.click();
+        } catch (err) {
+          console.error(err);
+          alert('Failed to restore overview version.');
+        }
       });
     });
 
@@ -250,7 +401,8 @@ export default class PlaceDetail {
       });
 
       this.content.querySelector('#detail-delete-place')?.addEventListener('click', async () => {
-        if (confirm(`Delete "${place.name}" and all its entries?`)) {
+        const confirmed = await this.confirmAction(`Delete "${place.name}" and all its entries?`, 'Delete Place');
+        if (confirmed) {
           await deletePlace(place.id);
           this.onDeletePlace?.(place);
           this.close();
@@ -315,8 +467,10 @@ export default class PlaceDetail {
             images: []
           });
 
-          // Refresh view
-          this.show(place);
+          // Refresh view and regenerate overview
+          this.activeTab = 'overview';
+          const refreshedPlace = await getPlace(place.id);
+          this.show(refreshedPlace || place, isReadOnly, currentUser, currentUserRole);
         } catch (err) {
           console.error(err);
           aiBtn.style.display = 'block';
@@ -339,9 +493,12 @@ export default class PlaceDetail {
     this.content.querySelectorAll('.delete-entry-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Delete this entry?')) {
+        const confirmed = await this.confirmAction('Delete this entry?', 'Delete Entry');
+        if (confirmed) {
           await deleteTimeEntry(btn.dataset.entryId);
-          this.show(place); // Refresh
+          this.activeTab = 'overview';
+          const refreshedPlace = await getPlace(place.id);
+          this.show(refreshedPlace || place, isReadOnly, currentUser, currentUserRole); // Refresh
         }
       });
     });
@@ -351,7 +508,12 @@ export default class PlaceDetail {
       img.addEventListener('click', () => {
         const overlay = document.createElement('div');
         overlay.className = 'lightbox-overlay';
-        overlay.innerHTML = `<img src="${img.src}" alt="${img.alt}" />`;
+        const imageUrl = safeUrl(img.src);
+        if (!imageUrl) return;
+        const fullImage = document.createElement('img');
+        fullImage.src = imageUrl;
+        fullImage.alt = img.alt || '';
+        overlay.appendChild(fullImage);
         overlay.addEventListener('click', () => overlay.remove());
         document.body.appendChild(overlay);
       });
@@ -364,4 +526,77 @@ export default class PlaceDetail {
     this.modal.style.display = 'none';
     this.onClose?.();
   }
+
+  async confirmAction(message, confirmLabel = 'Confirm') {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.display = 'flex';
+      overlay.style.zIndex = '3000';
+      overlay.innerHTML = `
+        <div class="modal-content glass-card" style="max-width: 440px; width: 100%; padding: var(--space-xl);">
+          <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Please confirm</h3>
+          <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">${escapeHtml(message)}</p>
+          <div style="display:flex; justify-content:flex-end; gap: var(--space-sm);">
+            <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+            <button class="btn btn-danger" id="confirm-accept">${escapeHtml(confirmLabel)}</button>
+          </div>
+        </div>
+      `;
+
+      const cleanup = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+
+      overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) cleanup(false);
+      });
+      overlay.querySelector('#confirm-cancel')?.addEventListener('click', () => cleanup(false));
+      overlay.querySelector('#confirm-accept')?.addEventListener('click', () => cleanup(true));
+      document.body.appendChild(overlay);
+    });
+  }
+
+  async showNotice(message, title = 'Notice') {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.display = 'flex';
+      overlay.style.zIndex = '3000';
+      overlay.innerHTML = `
+        <div class="modal-content glass-card" style="max-width: 440px; width: 100%; padding: var(--space-xl);">
+          <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">${escapeHtml(title)}</h3>
+          <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">${escapeHtml(message)}</p>
+          <div style="display:flex; justify-content:flex-end;">
+            <button class="btn btn-primary" id="notice-ok">OK</button>
+          </div>
+        </div>
+      `;
+
+      const cleanup = () => {
+        overlay.remove();
+        resolve();
+      };
+
+      overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) cleanup();
+      });
+      overlay.querySelector('#notice-ok')?.addEventListener('click', cleanup);
+      document.body.appendChild(overlay);
+    });
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
 }
