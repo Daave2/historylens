@@ -11,6 +11,7 @@ export default class EntryForm {
     this.place = null;
     this.editingEntry = null;
     this.pendingImages = []; // { file, preview }
+    this.isSuggestionMode = false;
 
     this.modal.querySelector('.modal-close').addEventListener('click', () => this.close());
     this.modal.addEventListener('click', (e) => {
@@ -18,17 +19,19 @@ export default class EntryForm {
     });
   }
 
-  show(place, existingEntry = null) {
+  show(place, existingEntry = null, options = {}) {
     this.place = place;
     this.editingEntry = existingEntry;
     this.pendingImages = [];
 
     const e = existingEntry || {};
     const isEdit = !!existingEntry;
+    const isSuggestion = !isEdit && !!options.suggestionMode;
+    this.isSuggestionMode = isSuggestion;
 
     this.content.innerHTML = `
       <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-xl);">
-        ${isEdit ? 'Edit Entry' : 'Add Historical Entry'}
+        ${isEdit ? 'Edit Entry' : (isSuggestion ? 'Suggest Historical Entry' : 'Add Historical Entry')}
       </h2>
       <p style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-xl);">
         for <strong>${escapeHtml(place.name)}</strong>
@@ -121,7 +124,7 @@ export default class EntryForm {
 
       <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-xl);">
         <button class="btn btn-ghost" id="ef-cancel">Cancel</button>
-        <button class="btn btn-primary" id="ef-save">${isEdit ? 'Save Changes' : 'Add Entry'}</button>
+        <button class="btn btn-primary" id="ef-save">${isEdit ? 'Save Changes' : (isSuggestion ? 'Submit Suggestion' : 'Add Entry')}</button>
       </div>
       <div id="ef-error" style="display:none; color: var(--danger); font-size: var(--text-sm); margin-top: var(--space-sm);"></div>
     `;
@@ -239,14 +242,14 @@ export default class EntryForm {
   }
 
   async aiSummarise() {
+    const outputEl = this.content.querySelector('#ef-ai-output');
     const pastedText = this.content.querySelector('#ef-paste').value.trim();
     if (!pastedText) {
-      alert('Paste some research text first, then click AI Summarise.');
+      outputEl.innerHTML = `<div style="color: var(--warning); font-size: var(--text-sm); margin-top: var(--space-sm);">Paste some research text first, then click AI Summarise.</div>`;
       return;
     }
 
     const btn = this.content.querySelector('#ef-ai-summarise');
-    const outputEl = this.content.querySelector('#ef-ai-output');
 
     if (hasAiAccess()) {
       // Live AI mode
@@ -345,7 +348,7 @@ export default class EntryForm {
 
     if (saveBtn) {
       saveBtn.disabled = true;
-      saveBtn.textContent = this.editingEntry ? 'Saving...' : 'Adding...';
+      saveBtn.textContent = this.editingEntry ? 'Saving...' : (this.isSuggestionMode ? 'Submitting...' : 'Adding...');
     }
 
     try {
@@ -371,7 +374,7 @@ export default class EntryForm {
     } finally {
       if (saveBtn) {
         saveBtn.disabled = false;
-        saveBtn.textContent = this.editingEntry ? 'Save Changes' : 'Add Entry';
+        saveBtn.textContent = this.editingEntry ? 'Save Changes' : (this.isSuggestionMode ? 'Submit Suggestion' : 'Add Entry');
       }
     }
   }
@@ -380,6 +383,7 @@ export default class EntryForm {
     this.modal.style.display = 'none';
     this.pendingImages.forEach(img => URL.revokeObjectURL(img.preview));
     this.pendingImages = [];
+    this.isSuggestionMode = false;
     this.onCancel?.();
   }
 }

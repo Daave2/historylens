@@ -1,8 +1,8 @@
-import { getPlacesByProject, getTimeEntriesForPlace, getImagesForEntry } from '../data/store.js';
+import { getPlacesByProject, getTimeEntriesForPlace, getPrimaryPlaceImage, getMySubmissionSummary, getProjectInboxCounts } from '../data/store.js';
 import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 
 export default class Sidebar {
-    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange }) {
+    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange }) {
         this.el = document.getElementById('sidebar');
         this.listEl = document.getElementById('place-list');
         this.countEl = document.getElementById('place-count');
@@ -12,11 +12,16 @@ export default class Sidebar {
         this.projectNameEl = document.getElementById('project-name');
         this.projectDescEl = document.getElementById('project-desc');
         this.addBtn = document.getElementById('btn-add-place');
+        this.guideBtn = document.getElementById('btn-guide');
         this.importBtn = document.getElementById('btn-import');
         this.exportBtn = document.getElementById('btn-export');
         this.settingsBtn = document.getElementById('btn-project-settings');
+        this.settingsInboxBadge = document.getElementById('settings-inbox-badge');
         this.collabRequestBtn = document.getElementById('btn-collab-request');
         this.collabStatusEl = document.getElementById('collab-status');
+        this.currentProjectId = null;
+        this.currentUserRole = null;
+        this.inboxRequestToken = 0;
 
         this.onPlaceClick = onPlaceClick;
         this.onProjectEdit = onProjectEdit;
@@ -28,9 +33,13 @@ export default class Sidebar {
         // Events
         this.toggleBtn.addEventListener('click', () => this.toggle());
         this.addBtn.addEventListener('click', () => onAddPlace?.());
+        if (this.guideBtn) this.guideBtn.addEventListener('click', () => onGuide?.());
         this.importBtn.addEventListener('click', () => onImport?.());
         this.exportBtn.addEventListener('click', () => onExport?.());
-        if (this.settingsBtn) this.settingsBtn.addEventListener('click', () => onProjectSettings?.());
+        if (this.settingsBtn) this.settingsBtn.addEventListener('click', () => {
+            onProjectSettings?.();
+            this.refreshInboxBadge();
+        });
         if (this.collabRequestBtn) this.collabRequestBtn.addEventListener('click', () => onRequestAccess?.());
         this.searchInput.addEventListener('input', () => this.filterPlaces());
         if (this.categoryFilter) this.categoryFilter.addEventListener('change', () => this.filterPlaces());
@@ -44,21 +53,55 @@ export default class Sidebar {
         });
     }
 
-    setProject(project, isReadOnly = false, currentUserRole = null) {
-        this.isReadOnly = isReadOnly;
+    setProject(project, permissionsOrReadOnly = false, currentUserRole = null) {
+        const permissions = typeof permissionsOrReadOnly === 'object'
+            ? permissionsOrReadOnly
+            : {
+                isReadOnly: !!permissionsOrReadOnly,
+                canSubmit: !permissionsOrReadOnly,
+                canEditPublished: !permissionsOrReadOnly
+            };
+
+        this.isReadOnly = !!permissions.isReadOnly;
+        this.canSubmit = !!permissions.canSubmit;
+        this.canEditPublished = !!permissions.canEditPublished;
+        this.currentProjectId = project.id;
+        this.currentUserRole = currentUserRole;
         this.projectNameEl.textContent = project.name;
         this.projectDescEl.textContent = project.description || 'Click to add a description…';
 
-        if (this.isReadOnly) {
-            this.projectNameEl.classList.remove('editable-title');
-            this.projectDescEl.classList.remove('editable-desc');
-            if (this.addBtn) this.addBtn.style.display = 'none';
-            if (this.importBtn) this.importBtn.parentElement.style.display = 'none'; // btn-group
-        } else {
+        if (this.canEditPublished) {
             this.projectNameEl.classList.add('editable-title');
             this.projectDescEl.classList.add('editable-desc');
-            if (this.addBtn) this.addBtn.style.display = '';
-            if (this.importBtn) this.importBtn.parentElement.style.display = 'flex';
+        } else {
+            this.projectNameEl.classList.remove('editable-title');
+            this.projectDescEl.classList.remove('editable-desc');
+        }
+
+        if (this.addBtn) {
+            if (this.canEditPublished) {
+                this.addBtn.style.display = '';
+                this.addBtn.innerHTML = `
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Add Place
+                `;
+            } else if (this.canSubmit && currentUserRole === 'pending') {
+                this.addBtn.style.display = '';
+                this.addBtn.innerHTML = `
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Suggest Place
+                `;
+            } else {
+                this.addBtn.style.display = 'none';
+            }
+        }
+
+        if (this.importBtn) {
+            this.importBtn.parentElement.style.display = this.canEditPublished ? 'flex' : 'none';
         }
 
         // Collaboration Buttons
@@ -79,13 +122,69 @@ export default class Sidebar {
             this.collabStatusEl.style.display = 'none';
             this.collabStatusEl.textContent = '';
             if (currentUserRole === 'pending') {
-                this.collabStatusEl.textContent = 'Access request sent. Waiting for project owner approval.';
+                this.collabStatusEl.textContent = 'You can submit place and timeline suggestions while waiting for approval.';
                 this.collabStatusEl.style.display = 'block';
+                this.renderPendingSubmissionSummary(project.id);
             } else if (currentUserRole === 'banned') {
                 this.collabStatusEl.textContent = 'You do not have access to edit this project.';
                 this.collabStatusEl.style.display = 'block';
             }
         }
+
+        this.refreshInboxBadge();
+    }
+
+    async renderPendingSubmissionSummary(projectId) {
+        try {
+            const summary = await getMySubmissionSummary(projectId);
+            if (!this.collabStatusEl || summary.total === 0) return;
+            this.collabStatusEl.textContent = `You can submit place and timeline suggestions while waiting for approval. Pending: ${summary.pending}, approved: ${summary.approved}, rejected: ${summary.rejected}.`;
+        } catch (err) {
+            console.warn('Could not load moderation summary:', err);
+        }
+    }
+
+    async refreshInboxBadge() {
+        const canModerate = this.currentUserRole === 'owner' || this.currentUserRole === 'admin';
+        if (!canModerate || !this.currentProjectId) {
+            this.updateInboxBadge(0);
+            return;
+        }
+
+        const token = ++this.inboxRequestToken;
+        try {
+            const counts = await getProjectInboxCounts(this.currentProjectId);
+            if (token !== this.inboxRequestToken) return;
+            this.updateInboxBadge(counts.total, counts);
+        } catch (err) {
+            console.warn('Could not load inbox counters:', err);
+            if (token === this.inboxRequestToken) {
+                this.updateInboxBadge(0);
+            }
+        }
+    }
+
+    updateInboxBadge(total, counts = {}) {
+        if (!this.settingsBtn || !this.settingsInboxBadge) return;
+
+        const safeTotal = Number.isFinite(total) ? total : 0;
+        if (safeTotal <= 0) {
+            this.settingsInboxBadge.style.display = 'none';
+            this.settingsInboxBadge.textContent = '0';
+            this.settingsBtn.classList.remove('has-inbox');
+            this.settingsBtn.title = 'Project Settings';
+            return;
+        }
+
+        const pendingAccess = Number.isFinite(counts.pendingAccess) ? counts.pendingAccess : 0;
+        const pendingSubmissions = Number.isFinite(counts.pendingSubmissions) ? counts.pendingSubmissions : 0;
+        const accessLabel = `${pendingAccess} access request${pendingAccess === 1 ? '' : 's'}`;
+        const submissionLabel = `${pendingSubmissions} submission${pendingSubmissions === 1 ? '' : 's'}`;
+
+        this.settingsInboxBadge.style.display = 'inline-flex';
+        this.settingsInboxBadge.textContent = safeTotal > 99 ? '99+' : String(safeTotal);
+        this.settingsBtn.classList.add('has-inbox');
+        this.settingsBtn.title = `Project Settings · ${accessLabel}, ${submissionLabel} pending`;
     }
 
     async loadPlaces(projectId) {
@@ -101,7 +200,11 @@ export default class Sidebar {
         const filtered = this.places.filter(p => {
             const pName = p.name || '';
             const pCatOriginal = p.category || '';
-            const matchesQuery = !query || pName.toLowerCase().includes(query) || pCatOriginal.toLowerCase().includes(query);
+            const aliasText = (p.aliases || []).map(a => a.alias).join(' ').toLowerCase();
+            const matchesQuery = !query
+                || pName.toLowerCase().includes(query)
+                || pCatOriginal.toLowerCase().includes(query)
+                || aliasText.includes(query);
 
             // Allow matching "other" categories by checking if it's not one of our standard ones
             let pCat = pCatOriginal.toLowerCase();
@@ -147,14 +250,12 @@ export default class Sidebar {
             item.className = 'place-item' + (place.id === this.activeId ? ' active' : '');
             item.dataset.placeId = place.id;
 
-            // Get first image for thumbnail
+            // Get a ranked main image for thumbnail.
             const entries = await getTimeEntriesForPlace(place.id);
             let thumbHtml = '';
-            if (entries.length > 0) {
-                const images = await getImagesForEntry(entries[0].id);
-                if (images.length > 0 && images[0].publicUrl) {
-                    thumbHtml = `<img src="${escapeAttr(images[0].publicUrl)}" class="sidebar-place-img" />`;
-                }
+            const primaryImage = await getPrimaryPlaceImage(place.id);
+            if (primaryImage?.publicUrl) {
+                thumbHtml = `<img src="${escapeAttr(primaryImage.publicUrl)}" class="sidebar-place-img" />`;
             }
 
             const catColour = {
@@ -170,12 +271,20 @@ export default class Sidebar {
             const meta = entries.length > 0
                 ? `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · ${entries[0].yearStart}–${entries[entries.length - 1].yearEnd || 'present'}`
                 : 'No entries yet';
+            const formerNames = (place.aliases || [])
+                .filter(a => a.endYear !== null && a.endYear !== undefined)
+                .slice(-2)
+                .map(a => a.alias);
+            const formerNameHtml = formerNames.length > 0
+                ? `<div class="place-item-meta" style="font-size:11px; opacity:0.8;">Formerly ${escapeHtml(formerNames.join(', '))}</div>`
+                : '';
 
             item.innerHTML = `
         <div class="place-item-icon" style="background:${catColour}22; color:${catColour}">${catIcon}</div>
         <div class="place-item-info">
           <div class="place-item-name">${escapeHtml(place.name)}</div>
           <div class="place-item-meta">${escapeHtml(meta)}</div>
+          ${formerNameHtml}
         </div>
         ${thumbHtml}
       `;

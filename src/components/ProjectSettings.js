@@ -1,4 +1,4 @@
-import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject } from '../data/store.js';
+import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getModerationSubmissions, reviewModerationSubmission, getProfiles } from '../data/store.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
 
 export default class ProjectSettings {
@@ -38,6 +38,110 @@ export default class ProjectSettings {
         this.modal.style.display = 'none';
     }
 
+    notifyInboxChanged() {
+        try {
+            this.handlers?.onInboxChanged?.();
+        } catch (err) {
+            console.warn('Could not notify inbox counter update:', err);
+        }
+    }
+
+    showInlineFeedback(container, message, type = 'error') {
+        if (!container) return;
+        let feedback = container.querySelector('.ps-inline-feedback');
+        if (!feedback) {
+            feedback = document.createElement('div');
+            feedback.className = 'ps-inline-feedback';
+            feedback.setAttribute('aria-live', 'polite');
+            feedback.style.marginBottom = 'var(--space-md)';
+            feedback.style.padding = 'var(--space-sm) var(--space-md)';
+            feedback.style.border = '1px solid';
+            feedback.style.borderRadius = 'var(--radius-sm)';
+            feedback.style.fontSize = 'var(--text-sm)';
+            container.prepend(feedback);
+        }
+
+        const isError = type === 'error';
+        feedback.textContent = message;
+        feedback.style.color = isError ? 'var(--danger)' : 'var(--success)';
+        feedback.style.background = isError ? 'rgba(248,113,113,0.12)' : 'rgba(74,222,128,0.12)';
+        feedback.style.borderColor = isError ? 'rgba(248,113,113,0.35)' : 'rgba(74,222,128,0.35)';
+        feedback.style.display = 'block';
+
+        clearTimeout(this.inlineFeedbackTimeout);
+        this.inlineFeedbackTimeout = setTimeout(() => {
+            if (feedback?.parentElement) {
+                feedback.remove();
+            }
+        }, 5000);
+    }
+
+    async confirmAction(message, confirmLabel = 'Confirm') {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.display = 'flex';
+            overlay.style.zIndex = '3500';
+            overlay.innerHTML = `
+              <div class="modal glass-panel" style="max-width: 440px;">
+                <h3 style="margin-bottom: var(--space-sm);">Please confirm</h3>
+                <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">${escapeHtml(message)}</p>
+                <div style="display:flex; justify-content:flex-end; gap: var(--space-sm);">
+                  <button class="btn btn-ghost" id="ps-confirm-cancel">Cancel</button>
+                  <button class="btn btn-danger" id="ps-confirm-ok">${escapeHtml(confirmLabel)}</button>
+                </div>
+              </div>
+            `;
+
+            const cleanup = (result) => {
+                overlay.remove();
+                resolve(result);
+            };
+
+            overlay.addEventListener('click', (evt) => {
+                if (evt.target === overlay) cleanup(false);
+            });
+            overlay.querySelector('#ps-confirm-cancel')?.addEventListener('click', () => cleanup(false));
+            overlay.querySelector('#ps-confirm-ok')?.addEventListener('click', () => cleanup(true));
+            document.body.appendChild(overlay);
+        });
+    }
+
+    async promptNote({ title = 'Optional Note', message = 'Add context (optional):', placeholder = 'Write a note…', confirmLabel = 'Continue' } = {}) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.display = 'flex';
+            overlay.style.zIndex = '3500';
+            overlay.innerHTML = `
+              <div class="modal glass-panel" style="max-width: 520px;">
+                <h3 style="margin-bottom: var(--space-sm);">${escapeHtml(title)}</h3>
+                <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">${escapeHtml(message)}</p>
+                <textarea id="ps-note-input" class="form-textarea" rows="4" placeholder="${escapeAttr(placeholder)}"></textarea>
+                <div style="display:flex; justify-content:flex-end; gap: var(--space-sm); margin-top: var(--space-md);">
+                  <button class="btn btn-ghost" id="ps-note-skip">Skip</button>
+                  <button class="btn btn-primary" id="ps-note-save">${escapeHtml(confirmLabel)}</button>
+                </div>
+              </div>
+            `;
+
+            const cleanup = (value) => {
+                overlay.remove();
+                resolve((value || '').trim());
+            };
+
+            overlay.addEventListener('click', (evt) => {
+                if (evt.target === overlay) cleanup('');
+            });
+            overlay.querySelector('#ps-note-skip')?.addEventListener('click', () => cleanup(''));
+            overlay.querySelector('#ps-note-save')?.addEventListener('click', () => {
+                cleanup(overlay.querySelector('#ps-note-input')?.value || '');
+            });
+            document.body.appendChild(overlay);
+            overlay.querySelector('#ps-note-input')?.focus();
+        });
+    }
+
     // --- Mode 1: Viewer requesting access (inherited from old CollaboratorsModal) ---
     showRequestAccess(projectId, onSuccess) {
         const titleEl = this.modal.querySelector('#ps-modal-title');
@@ -69,7 +173,7 @@ export default class ProjectSettings {
                 if (onSuccess) onSuccess(result);
             } catch (err) {
                 console.error(err);
-                alert('Failed to request access: ' + err.message);
+                this.showInlineFeedback(bodyEl, `Failed to request access: ${err?.message || 'Unknown error'}`);
                 requestBtn.disabled = false;
                 requestBtn.textContent = 'Request Access';
             }
@@ -201,7 +305,7 @@ export default class ProjectSettings {
                 setTimeout(() => { btn.disabled = false; btn.textContent = 'Save Changes'; }, 2000);
             } catch (err) {
                 console.error(err);
-                alert('Error saving project: ' + err.message);
+                this.showInlineFeedback(container, `Error saving project: ${err?.message || 'Unknown error'}`);
                 btn.disabled = false;
                 btn.textContent = 'Save Changes';
             }
@@ -217,7 +321,7 @@ export default class ProjectSettings {
                 setTimeout(() => { btn.innerHTML = originalText; }, 2000);
             } catch (err) {
                 console.error(err);
-                alert('Failed to update map centre');
+                this.showInlineFeedback(container, 'Failed to update map centre');
                 btn.innerHTML = originalText;
             }
         });
@@ -278,23 +382,26 @@ export default class ProjectSettings {
             html += `</ul>`;
 
             container.innerHTML = html;
+            this.notifyInboxChanged();
 
             // Wire up buttons
             container.querySelectorAll('.collab-approve').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     btn.disabled = true;
                     await updateRole(btn.dataset.id, 'editor');
+                    this.notifyInboxChanged();
                     this.renderManageList(container);
                 });
             });
 
             container.querySelectorAll('.collab-reject, .collab-remove').forEach(btn => {
                 btn.addEventListener('click', async () => {
-                    if (confirm('Remove this user?')) {
-                        btn.disabled = true;
-                        await removeRole(btn.dataset.id);
-                        this.renderManageList(container);
-                    }
+                    const confirmed = await this.confirmAction('Remove this user?', 'Remove');
+                    if (!confirmed) return;
+                    btn.disabled = true;
+                    await removeRole(btn.dataset.id);
+                    this.notifyInboxChanged();
+                    this.renderManageList(container);
                 });
             });
 
@@ -302,6 +409,7 @@ export default class ProjectSettings {
                 sel.addEventListener('change', async (e) => {
                     sel.disabled = true;
                     await updateRole(sel.dataset.id, e.target.value);
+                    this.notifyInboxChanged();
                     this.renderManageList(container);
                 });
             });
@@ -314,16 +422,122 @@ export default class ProjectSettings {
 
     async renderModerationTab(container) {
         try {
-            const roles = await getProjectRoles(this.project.id);
+            const [roles, submissions] = await Promise.all([
+                getProjectRoles(this.project.id),
+                getModerationSubmissions(this.project.id, { limit: 120 })
+            ]);
             const bannedRoles = roles.filter(r => r.role === 'banned');
-            // Also list all users so they can be explicitly banned if needed? 
-            // For simplicity, we show a list of current non-owner users that can be banned.
             const bannableRoles = roles.filter(r => r.role !== 'owner' && r.role !== 'banned');
+            const pendingSubs = submissions.filter(s => s.status === 'pending');
+            const recentReviewed = submissions.filter(s => s.status !== 'pending').slice(0, 10);
+            const submitterIds = [...new Set(submissions.map(s => s.submitterId).filter(Boolean))];
+            const submitterMap = await getProfiles(submitterIds);
+
+            const displaySubmitter = (userId) => {
+                const profile = submitterMap[userId];
+                if (!profile) return 'Unknown user';
+                return profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Unknown user');
+            };
+
+            const formatSubmissionType = (type) => {
+                if (type === 'place_create') return 'New Place';
+                if (type === 'entry_create') return 'Timeline Entry';
+                if (type === 'place_move') return 'Location Correction';
+                if (type === 'place_name_alias') return 'Historical Name';
+                return type;
+            };
+
+            const formatSubmissionSummary = (submission) => {
+                const payload = submission.payload || {};
+                if (submission.submissionType === 'place_create') {
+                    const name = payload.name || 'Unnamed place';
+                    return `${name} at ${Number(payload.lat).toFixed(5)}, ${Number(payload.lng).toFixed(5)}`;
+                }
+                if (submission.submissionType === 'entry_create') {
+                    const title = payload.title || 'Untitled';
+                    const year = payload.yearStart ? ` (${payload.yearStart})` : '';
+                    return `${title}${year}`;
+                }
+                if (submission.submissionType === 'place_move') {
+                    const fromLat = Number(payload.fromLat);
+                    const fromLng = Number(payload.fromLng);
+                    const toLat = Number(payload.lat);
+                    const toLng = Number(payload.lng);
+                    const base = `${toLat.toFixed(5)}, ${toLng.toFixed(5)}`;
+                    if (Number.isFinite(fromLat) && Number.isFinite(fromLng) && Number.isFinite(toLat) && Number.isFinite(toLng)) {
+                        const delta = haversineDistanceMeters(fromLat, fromLng, toLat, toLng);
+                        return `Move to ${base} (${delta.toFixed(0)}m from current)`;
+                    }
+                    return `Move to ${base}`;
+                }
+                if (submission.submissionType === 'place_name_alias') {
+                    const alias = payload.alias || 'Unnamed alias';
+                    const start = payload.startYear ? `from ${payload.startYear}` : '';
+                    const end = payload.endYear ? `until ${payload.endYear}` : '';
+                    const when = [start, end].filter(Boolean).join(' ');
+                    return when ? `${alias} (${when})` : alias;
+                }
+                return JSON.stringify(payload);
+            };
 
             let html = `<h3 style="margin-bottom: var(--space-lg);">Moderation Controls</h3>`;
 
             html += `
         <div style="margin-bottom: var(--space-xl);">
+          <h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm);">Pending Submissions</h4>
+          <div style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-md);">
+            Review and publish community suggestions.
+          </div>
+      `;
+
+            if (pendingSubs.length === 0) {
+                html += `<div style="color: var(--text-muted); padding: var(--space-md); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm);">No pending submissions.</div>`;
+            } else {
+                pendingSubs.forEach(sub => {
+                    html += `
+            <div style="border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: var(--space-md); margin-bottom: var(--space-sm); background: var(--bg-surface);">
+              <div style="display:flex; justify-content:space-between; gap: var(--space-sm); align-items:flex-start;">
+                <div>
+                  <div style="font-size: var(--text-xs); color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em;">${escapeHtml(formatSubmissionType(sub.submissionType))}</div>
+                  <div style="font-size: var(--text-sm); color: var(--text-primary); margin-top: 2px;">${escapeHtml(formatSubmissionSummary(sub))}</div>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    by ${escapeHtml(displaySubmitter(sub.submitterId))} · ${new Date(sub.createdAt).toLocaleString()}
+                  </div>
+                </div>
+                <div style="display:flex; gap: var(--space-xs);">
+                  <button class="btn btn-sm btn-primary mod-sub-approve" data-id="${escapeAttr(sub.id)}">Approve</button>
+                  <button class="btn btn-sm btn-danger mod-sub-reject" data-id="${escapeAttr(sub.id)}">Reject</button>
+                </div>
+              </div>
+            </div>
+          `;
+                });
+            }
+            html += `</div>`;
+
+            html += `
+        <div style="margin-bottom: var(--space-xl); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
+          <h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm);">Recent Decisions</h4>
+      `;
+            if (recentReviewed.length === 0) {
+                html += `<div style="color: var(--text-muted); font-size: var(--text-xs);">No reviewed submissions yet.</div>`;
+            } else {
+                html += `<ul style="list-style:none; padding:0; margin:0;">`;
+                recentReviewed.forEach(sub => {
+                    html += `
+            <li style="padding: 6px 0; border-bottom: 1px solid var(--bg-hover); font-size: 12px; color: var(--text-secondary);">
+              <strong style="color:${sub.status === 'approved' ? 'var(--success)' : 'var(--danger)'};">${escapeHtml(sub.status.toUpperCase())}</strong>
+              · ${escapeHtml(formatSubmissionType(sub.submissionType))}
+              · ${escapeHtml(displaySubmitter(sub.submitterId))}
+            </li>
+          `;
+                });
+                html += `</ul>`;
+            }
+            html += `</div>`;
+
+            html += `
+        <div style="margin-bottom: var(--space-xl); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
           <h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm);">Ban an active collaborator</h4>
           <div style="display: flex; gap: var(--space-sm);">
             <select id="mod-ban-select" class="form-select" style="flex: 1;">
@@ -360,23 +574,72 @@ export default class ProjectSettings {
             html += `</ul>`;
 
             container.innerHTML = html;
+            this.notifyInboxChanged();
+
+            container.querySelectorAll('.mod-sub-approve').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const note = await this.promptNote({
+                        title: 'Approve Submission',
+                        message: 'Optional approval note for the contributor:',
+                        placeholder: 'Add an optional note…',
+                        confirmLabel: 'Approve'
+                    });
+                    btn.disabled = true;
+                    try {
+                        await reviewModerationSubmission(btn.dataset.id, { decision: 'approved', note });
+                        if (this.handlers.onRefreshRequired) this.handlers.onRefreshRequired();
+                        this.notifyInboxChanged();
+                        this.renderModerationTab(container);
+                    } catch (err) {
+                        console.error(err);
+                        this.showInlineFeedback(container, 'Failed to approve submission: ' + (err?.message || 'Unknown error'));
+                        btn.disabled = false;
+                    }
+                });
+            });
+
+            container.querySelectorAll('.mod-sub-reject').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const note = await this.promptNote({
+                        title: 'Reject Submission',
+                        message: 'Rejection reason shown to the contributor:',
+                        placeholder: 'Explain why this was rejected…',
+                        confirmLabel: 'Reject'
+                    });
+                    btn.disabled = true;
+                    try {
+                        await reviewModerationSubmission(btn.dataset.id, { decision: 'rejected', note });
+                        this.notifyInboxChanged();
+                        this.renderModerationTab(container);
+                    } catch (err) {
+                        console.error(err);
+                        this.showInlineFeedback(container, 'Failed to reject submission: ' + (err?.message || 'Unknown error'));
+                        btn.disabled = false;
+                    }
+                });
+            });
 
             // Ban button
-            container.querySelector('#mod-ban-btn').addEventListener('click', async (e) => {
+            container.querySelector('#mod-ban-btn')?.addEventListener('click', async (e) => {
                 const select = container.querySelector('#mod-ban-select');
-                if (!select.value) return;
-                if (confirm('Ban this user? They will not be able to interact with the project.')) {
-                    e.target.disabled = true;
-                    await banUser(this.project.id, select.value);
-                    this.renderModerationTab(container);
-                }
+                if (!select || !select.value) return;
+                const confirmed = await this.confirmAction(
+                    'Ban this user? They will not be able to interact with the project.',
+                    'Ban User'
+                );
+                if (!confirmed) return;
+                e.target.disabled = true;
+                await banUser(this.project.id, select.value);
+                this.notifyInboxChanged();
+                this.renderModerationTab(container);
             });
 
             // Unban
             container.querySelectorAll('.mod-unban').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     btn.disabled = true;
-                    await removeRole(btn.dataset.id); // deleting the banned role frees them
+                    await removeRole(btn.dataset.id);
+                    this.notifyInboxChanged();
                     this.renderModerationTab(container);
                 });
             });
@@ -384,20 +647,22 @@ export default class ProjectSettings {
             // Wipe
             container.querySelectorAll('.mod-wipe').forEach(btn => {
                 btn.addEventListener('click', async () => {
-                    if (confirm('WARNING: This will permanently delete EVERY time entry and comment this user ever created on this project. This cannot be undone. Proceed?')) {
-                        btn.disabled = true;
-                        btn.textContent = 'Wiping...';
-                        try {
-                            await wipeUserContributions(this.project.id, btn.dataset.userid);
-                            btn.textContent = 'Wiped!';
-                            // Optional: full refresh to clear UI 
-                            if (this.handlers.onRefreshRequired) this.handlers.onRefreshRequired();
-                        } catch (err) {
-                            console.error(err);
-                            alert('Failed to wipe: ' + err.message);
-                            btn.disabled = false;
-                            btn.textContent = 'Wipe Contributions';
-                        }
+                    const confirmed = await this.confirmAction(
+                        'WARNING: This will permanently delete every time entry and comment this user created on this project. This cannot be undone.',
+                        'Wipe Contributions'
+                    );
+                    if (!confirmed) return;
+                    btn.disabled = true;
+                    btn.textContent = 'Wiping...';
+                    try {
+                        await wipeUserContributions(this.project.id, btn.dataset.userid);
+                        btn.textContent = 'Wiped!';
+                        if (this.handlers.onRefreshRequired) this.handlers.onRefreshRequired();
+                    } catch (err) {
+                        console.error(err);
+                        this.showInlineFeedback(container, `Failed to wipe: ${err?.message || 'Unknown error'}`);
+                        btn.disabled = false;
+                        btn.textContent = 'Wipe Contributions';
                     }
                 });
             });
@@ -447,11 +712,22 @@ export default class ProjectSettings {
                     window.location.href = import.meta.env.BASE_URL || '/';
                 } catch (err) {
                     console.error(err);
-                    alert("Failed to delete project: " + err.message);
+                    this.showInlineFeedback(container, `Failed to delete project: ${err?.message || 'Unknown error'}`);
                     deleteBtn.disabled = false;
                     deleteBtn.textContent = 'Delete Project';
                 }
             }
         });
     }
+}
+
+function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
+    const toRad = (v) => (v * Math.PI) / 180;
+    const earthRadius = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadius * c;
 }

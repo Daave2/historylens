@@ -11,6 +11,7 @@ export default class PlaceForm {
     this.mapView = mapView;
     this.pendingLatLng = null;
     this.lookupResult = null;
+    this.isSuggestionMode = false;
     this._searchTimer = null;
     this._searchRequestId = 0;
     this._isDocClickBound = false;
@@ -28,12 +29,14 @@ export default class PlaceForm {
     });
   }
 
-  async show(latLng) {
+  async show(latLng, options = {}) {
+    const isSuggestion = !!options.suggestionMode;
+    this.isSuggestionMode = isSuggestion;
     this.pendingLatLng = latLng;
     this.lookupResult = null;
 
     this.content.innerHTML = `
-      <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-lg);">Add New Place</h2>
+      <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-lg);">${isSuggestion ? 'Suggest New Place' : 'Add New Place'}</h2>
 
       <!-- Address Search Bar -->
       <div class="form-group" style="position: relative;">
@@ -100,7 +103,7 @@ export default class PlaceForm {
 
       <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-xl);">
         <button class="btn btn-ghost" id="pf-cancel">Cancel</button>
-        <button class="btn btn-primary" id="pf-save">Add Place</button>
+        <button class="btn btn-primary" id="pf-save">${isSuggestion ? 'Submit Suggestion' : 'Add Place'}</button>
       </div>
     `;
 
@@ -491,7 +494,10 @@ export default class PlaceForm {
       return;
     }
     if (isNaN(lat) || isNaN(lng)) {
-      alert('Please search for an address or click the map to set a location.');
+      if (errorEl) {
+        errorEl.textContent = 'Please search for an address or click the map to set a location.';
+        errorEl.style.display = 'block';
+      }
       return;
     }
 
@@ -528,7 +534,7 @@ export default class PlaceForm {
     } finally {
       if (saveBtn) {
         saveBtn.disabled = false;
-        saveBtn.textContent = 'Add Place';
+        saveBtn.textContent = this.isSuggestionMode ? 'Submit Suggestion' : 'Add Place';
       }
     }
   }

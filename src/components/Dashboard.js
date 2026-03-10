@@ -2,10 +2,11 @@ import { getAllProjects, createProject, getSession } from '../data/store.js';
 import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 
 export default class Dashboard {
-    constructor({ onSelectProject, onAuthRequest }) {
+    constructor({ onSelectProject, onAuthRequest, onGuideRequest }) {
         this.createDom();
         this.onSelectProject = onSelectProject;
         this.onAuthRequest = onAuthRequest;
+        this.onGuideRequest = onGuideRequest;
         this.currentUser = null;
     }
 
@@ -30,6 +31,10 @@ export default class Dashboard {
         <section class="dashboard-hero">
           <h2>Discover the history around you</h2>
           <p>Explore community research or start mapping your own local history project.</p>
+          <div class="dashboard-hero-actions">
+            <button class="btn btn-primary" id="dashboard-guide-btn">Quick Start Guide</button>
+          </div>
+          <p id="dashboard-feedback" style="display:none; margin-top: var(--space-md); font-size: var(--text-sm);" aria-live="polite"></p>
         </section>
 
         <div class="dashboard-tabs">
@@ -46,14 +51,20 @@ export default class Dashboard {
         document.body.appendChild(this.container);
 
         // Tab logic
-        const tabs = this.container.querySelectorAll('.tab-btn');
-        tabs.forEach(btn => {
+        this.tabButtons = this.container.querySelectorAll('.tab-btn');
+        this.tabButtons.forEach(btn => {
             btn.addEventListener('click', () => {
-                tabs.forEach(t => t.classList.remove('active'));
+                this.tabButtons.forEach(t => t.classList.remove('active'));
                 btn.classList.add('active');
                 this.renderGrid(btn.dataset.tab);
             });
         });
+
+        const guideBtn = this.container.querySelector('#dashboard-guide-btn');
+        if (guideBtn) {
+            guideBtn.addEventListener('click', () => this.onGuideRequest?.());
+        }
+        this.feedbackEl = this.container.querySelector('#dashboard-feedback');
 
         // Delegated click for project cards
         this.container.querySelector('#dashboard-grid').addEventListener('click', (e) => {
@@ -88,8 +99,21 @@ export default class Dashboard {
             if (this.onSelectProject) this.onSelectProject(project.id);
         } catch (e) {
             console.error("Failed to create project", e);
-            alert("Failed to create project. Check if you are signed in.");
+            this.showFeedback('Could not create project. Please sign in and try again.', 'error');
         }
+    }
+
+    showFeedback(message, type = 'info') {
+        if (!this.feedbackEl) return;
+        this.feedbackEl.textContent = message;
+        this.feedbackEl.style.display = 'block';
+        this.feedbackEl.style.color = type === 'error' ? 'var(--danger)' : 'var(--text-secondary)';
+        clearTimeout(this.feedbackTimeout);
+        this.feedbackTimeout = setTimeout(() => {
+            if (!this.feedbackEl) return;
+            this.feedbackEl.style.display = 'none';
+            this.feedbackEl.textContent = '';
+        }, 4500);
     }
 
     async show(currentUser = null) {
@@ -121,6 +145,16 @@ export default class Dashboard {
         document.getElementById('map-container').style.display = 'block';
         document.getElementById('sidebar').style.display = 'flex'; // sidebar expects flex
         document.getElementById('time-slider-container').style.display = 'block';
+    }
+
+    setTab(tab) {
+        if (!tab || !this.tabButtons) return;
+        const targetBtn = Array.from(this.tabButtons).find(btn => btn.dataset.tab === tab);
+        if (!targetBtn) return;
+
+        this.tabButtons.forEach(btn => btn.classList.remove('active'));
+        targetBtn.classList.add('active');
+        this.renderGrid(tab);
     }
 
     renderGrid(tab) {

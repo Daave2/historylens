@@ -38,6 +38,37 @@ export default class CollaboratorsModal {
     this.modal.style.display = 'none';
   }
 
+  async confirmAction(message, confirmLabel = 'Confirm') {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.display = 'flex';
+      overlay.style.zIndex = '3500';
+      overlay.innerHTML = `
+        <div class="modal glass-panel" style="max-width: 440px;">
+          <h3 style="margin-bottom: var(--space-sm);">Please confirm</h3>
+          <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">${escapeHtml(message)}</p>
+          <div style="display:flex; justify-content:flex-end; gap: var(--space-sm);">
+            <button class="btn btn-ghost" id="collab-confirm-cancel">Cancel</button>
+            <button class="btn btn-danger" id="collab-confirm-ok">${escapeHtml(confirmLabel)}</button>
+          </div>
+        </div>
+      `;
+
+      const cleanup = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+
+      overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) cleanup(false);
+      });
+      overlay.querySelector('#collab-confirm-cancel')?.addEventListener('click', () => cleanup(false));
+      overlay.querySelector('#collab-confirm-ok')?.addEventListener('click', () => cleanup(true));
+      document.body.appendChild(overlay);
+    });
+  }
+
   // --- Mode 1: Viewer requesting access ---
   showRequestAccess(projectId, onSuccess) {
     const titleEl = this.modal.querySelector('#collab-modal-title');
@@ -49,6 +80,7 @@ export default class CollaboratorsModal {
       <p style="color: var(--text-secondary); margin-bottom: var(--space-xl);">
         You are currently viewing this project in read-only mode. Would you like to request edit access from the project owner?
       </p>
+      <div id="collab-feedback" style="display:none; color: var(--danger); font-size: var(--text-sm); margin-bottom: var(--space-md);" aria-live="polite"></div>
       <div style="display: flex; gap: var(--space-md); justify-content: flex-end;">
         <button class="btn btn-ghost" id="collab-cancel-btn">Cancel</button>
         <button class="btn btn-primary" id="collab-request-btn">Request Access</button>
@@ -67,7 +99,11 @@ export default class CollaboratorsModal {
         if (onSuccess) onSuccess(result);
       } catch (err) {
         console.error(err);
-        alert('Failed to request access: ' + err.message);
+        const feedbackEl = bodyEl.querySelector('#collab-feedback');
+        if (feedbackEl) {
+          feedbackEl.textContent = `Failed to request access: ${err?.message || 'Unknown error'}`;
+          feedbackEl.style.display = 'block';
+        }
         requestBtn.disabled = false;
         requestBtn.textContent = 'Request Access';
       }
@@ -156,11 +192,11 @@ export default class CollaboratorsModal {
 
       bodyEl.querySelectorAll('.collab-reject, .collab-remove').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (confirm('Remove this user?')) {
-            btn.disabled = true;
-            await removeRole(btn.dataset.id);
-            this.renderManageList(projectId, bodyEl);
-          }
+          const confirmed = await this.confirmAction('Remove this user?', 'Remove');
+          if (!confirmed) return;
+          btn.disabled = true;
+          await removeRole(btn.dataset.id);
+          this.renderManageList(projectId, bodyEl);
         });
       });
 

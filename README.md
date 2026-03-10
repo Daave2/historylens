@@ -13,6 +13,7 @@ HistoryLens is a Vite-based web app for mapping local history as places plus tim
 - Interactive map with category-based place markers
 - Timeline entries per place with year ranges and historical summaries
 - Time slider to filter and animate history by year
+- Built-in quick guide/tutorial in dashboard and project sidebar
 - Collaboration roles (`owner`, `admin`, `editor`, `pending`, `banned`) and access requests
 - Place-level discussion comments
 - Data export/import utilities (GeoJSON, JSON bundle, CSV)
@@ -67,6 +68,32 @@ npm run dev
 npm run build
 npm run preview
 ```
+
+## Deploy To Vercel
+
+### 1. Import repo into Vercel
+
+- In Vercel, choose **Add New Project** and import this repository.
+- Framework preset: **Vite**.
+- Build command: `npm run build`
+- Output directory: `dist`
+
+`vercel.json` is included to ensure SPA route fallback (`/* -> /index.html`) while still serving static files directly.
+
+### 2. Add environment variables in Vercel
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_MAPTILER_KEY` (optional, only if you use historic map overlays)
+
+### 3. Update Supabase auth URLs
+
+In Supabase Dashboard -> Authentication -> URL Configuration:
+
+- Set **Site URL** to your Vercel production domain (for example `https://history-lens.vercel.app`)
+- Add **Additional Redirect URLs** for:
+  - your production URL
+  - your preview URL pattern (for example `https://*.vercel.app`)
 
 ## Optional Backend Setup
 

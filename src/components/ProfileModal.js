@@ -37,6 +37,8 @@ export default class ProfileModal {
         <span class="form-hint">This name will be shown publicly when you add places or entries.</span>
       </div>
 
+      <div id="profile-error" style="display:none; color: var(--danger); font-size: var(--text-sm); margin-top: calc(-1 * var(--space-sm)); margin-bottom: var(--space-md);" aria-live="polite"></div>
+
       <div style="display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-xl);">
         <button class="btn btn-ghost" id="profile-cancel">Cancel</button>
         <button class="btn btn-primary" id="profile-save">Save Profile</button>
@@ -72,7 +74,11 @@ export default class ProfileModal {
             console.error('Failed to save profile:', err);
             saveBtn.textContent = 'Save Profile';
             saveBtn.disabled = false;
-            alert('Error saving profile. Please try again.');
+            const errEl = this.content.querySelector('#profile-error');
+            if (errEl) {
+                errEl.textContent = 'Error saving profile. Please try again.';
+                errEl.style.display = 'block';
+            }
         }
     }
 }

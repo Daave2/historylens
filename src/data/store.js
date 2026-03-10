@@ -30,7 +30,19 @@ const mapProject = (row) => ({
     updatedAt: new Date(row.updated_at)
 });
 
-const mapPlace = (row) => ({
+const mapAlias = (row) => ({
+    id: row.id,
+    placeId: row.place_id,
+    projectId: row.project_id,
+    alias: row.alias,
+    startYear: row.start_year,
+    endYear: row.end_year,
+    note: row.note || '',
+    createdBy: row.created_by,
+    createdAt: new Date(row.created_at)
+});
+
+const mapPlace = (row, aliases = []) => ({
     id: row.id,
     projectId: row.project_id,
     name: row.name,
@@ -39,6 +51,8 @@ const mapPlace = (row) => ({
     lng: row.lng,
     category: row.category,
     createdBy: row.created_by,
+    pinnedImageId: row.pinned_image_id || null,
+    aliases,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at)
 });
@@ -65,6 +79,7 @@ const mapImage = (row) => ({
     caption: row.caption,
     yearTaken: row.year_taken,
     credit: row.credit,
+    moderationStatus: row.moderation_status || 'approved',
     createdBy: row.created_by,
     createdAt: new Date(row.created_at)
 });
@@ -80,8 +95,24 @@ const mapOverviewRevision = (row) => ({
     createdAt: new Date(row.created_at)
 });
 
+const mapSubmission = (row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    submitterId: row.submitter_id,
+    submissionType: row.submission_type,
+    targetPlaceId: row.target_place_id,
+    payload: row.payload || {},
+    status: row.status,
+    reviewerNote: row.reviewer_note || '',
+    reviewedBy: row.reviewed_by || null,
+    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at) : null,
+    createdAt: new Date(row.created_at)
+});
+
 const PRIMARY_IMAGE_BUCKET = 'entry_images';
 const FALLBACK_IMAGE_BUCKET = 'place-images';
+
+const SUBMISSION_TYPES = new Set(['place_create', 'entry_create', 'place_move', 'place_name_alias']);
 
 function encodeStoragePath(bucket, path) {
     return bucket === PRIMARY_IMAGE_BUCKET ? path : `${bucket}::${path}`;
@@ -120,6 +151,57 @@ const getImageUrl = (path) => {
     const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
     return data.publicUrl;
 };
+
+function isMissingSchemaError(error) {
+    const message = (error?.message || '').toLowerCase();
+    return error?.code === '42P01' || error?.code === '42703' || message.includes('does not exist');
+}
+
+function safeInt(value, fallback = null) {
+    if (value === null || value === undefined || value === '') return fallback;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function imageQualityScore(image) {
+    let score = 0;
+    if ((image.caption || '').trim().length >= 16) score += 1.2;
+    if ((image.credit || '').trim().length > 0) score += 0.7;
+    if (Number.isFinite(image.yearTaken)) score += 0.35;
+    return score;
+}
+
+function scoreImageForYear(image, year, voteScore = 0) {
+    const targetYear = Number.isFinite(year) ? year : new Date().getFullYear();
+    const effectiveYear = Number.isFinite(image.effectiveYear) ? image.effectiveYear : targetYear;
+    const temporalWeight = 1 / (1 + Math.abs(effectiveYear - targetYear));
+    return (voteScore * 1.7) + imageQualityScore(image) + temporalWeight;
+}
+
+async function getAliasesForPlaceIds(placeIds) {
+    const ids = [...new Set((placeIds || []).filter(Boolean))];
+    const aliasMap = {};
+    if (ids.length === 0) return aliasMap;
+
+    try {
+        const { data, error } = await supabase
+            .from('place_name_aliases')
+            .select('*')
+            .in('place_id', ids)
+            .order('start_year', { ascending: true, nullsFirst: true });
+        if (error) throw error;
+        for (const row of data || []) {
+            if (!aliasMap[row.place_id]) aliasMap[row.place_id] = [];
+            aliasMap[row.place_id].push(mapAlias(row));
+        }
+    } catch (err) {
+        if (!isMissingSchemaError(err)) {
+            console.warn('Could not fetch place aliases:', err);
+        }
+    }
+
+    return aliasMap;
+}
 
 // ── Projects ──────────────────────────────────────────────
 
@@ -236,7 +318,10 @@ export async function getProjectRoles(projectId) {
     const userIds = roles.map(r => r.user_id);
     const emailMap = await getProfiles(userIds);
 
-    return roles.map(r => ({ ...r, email: emailMap[r.user_id] || 'Unknown User' }));
+    return roles.map(r => ({
+        ...r,
+        email: emailMap[r.user_id] || { email: 'Unknown User', display_name: null, avatar_url: null }
+    }));
 }
 
 export async function requestAccess(projectId) {
@@ -327,20 +412,218 @@ export async function deleteProject(projectId) {
     return true;
 }
 
+// ── Moderation Submissions ─────────────────────────────────
+
+export async function createModerationSubmission({ projectId, submissionType, targetPlaceId = null, payload = {} }) {
+    if (!SUBMISSION_TYPES.has(submissionType)) {
+        throw new Error(`Unsupported submission type: ${submissionType}`);
+    }
+
+    const session = await getSession();
+    if (!session) throw new Error('Must be signed in to submit for review');
+
+    const { data, error } = await supabase
+        .from('moderation_submissions')
+        .insert({
+            project_id: projectId,
+            submitter_id: session.user.id,
+            submission_type: submissionType,
+            target_place_id: targetPlaceId,
+            payload
+        })
+        .select()
+        .single();
+
+    if (error) { console.error(error); throw error; }
+    return mapSubmission(data);
+}
+
+export async function submitPlaceSuggestion({ projectId, name, description, category, lat, lng, autoEntries = [] }) {
+    return createModerationSubmission({
+        projectId,
+        submissionType: 'place_create',
+        payload: {
+            name: name || 'Unnamed Place',
+            description: description || '',
+            category: normalizePlaceCategory(category),
+            lat,
+            lng,
+            autoEntries: Array.isArray(autoEntries) ? autoEntries : []
+        }
+    });
+}
+
+export async function submitEntrySuggestion({ projectId, placeId, yearStart, yearEnd, title, summary, source, sourceType, confidence }) {
+    return createModerationSubmission({
+        projectId,
+        submissionType: 'entry_create',
+        targetPlaceId: placeId,
+        payload: {
+            placeId,
+            yearStart: safeInt(yearStart, new Date().getFullYear()),
+            yearEnd: safeInt(yearEnd),
+            title: title || '',
+            summary: summary || '',
+            source: source || '',
+            sourceType: sourceType || 'user',
+            confidence: confidence || 'likely'
+        }
+    });
+}
+
+export async function submitPlaceMoveSuggestion({ projectId, placeId, fromLat, fromLng, lat, lng, reason = '' }) {
+    return createModerationSubmission({
+        projectId,
+        submissionType: 'place_move',
+        targetPlaceId: placeId,
+        payload: {
+            placeId,
+            fromLat,
+            fromLng,
+            lat,
+            lng,
+            reason: reason || ''
+        }
+    });
+}
+
+export async function submitPlaceNameSuggestion({ projectId, placeId, alias, startYear = null, endYear = null, note = '' }) {
+    return createModerationSubmission({
+        projectId,
+        submissionType: 'place_name_alias',
+        targetPlaceId: placeId,
+        payload: {
+            placeId,
+            alias: (alias || '').trim(),
+            startYear: safeInt(startYear),
+            endYear: safeInt(endYear),
+            note: note || ''
+        }
+    });
+}
+
+export async function getModerationSubmissions(projectId, { limit = 100, statuses = [] } = {}) {
+    let query = supabase
+        .from('moderation_submissions')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (Array.isArray(statuses) && statuses.length > 0) {
+        query = query.in('status', statuses);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        throw error;
+    }
+    return (data || []).map(mapSubmission);
+}
+
+export async function getMySubmissionSummary(projectId) {
+    const session = await getSession();
+    if (!session) return { pending: 0, approved: 0, rejected: 0, total: 0 };
+
+    const { data, error } = await supabase
+        .from('moderation_submissions')
+        .select('status')
+        .eq('project_id', projectId)
+        .eq('submitter_id', session.user.id);
+
+    if (error) {
+        if (isMissingSchemaError(error)) return { pending: 0, approved: 0, rejected: 0, total: 0 };
+        console.error(error);
+        return { pending: 0, approved: 0, rejected: 0, total: 0 };
+    }
+
+    const summary = { pending: 0, approved: 0, rejected: 0, total: 0 };
+    for (const row of data || []) {
+        summary.total += 1;
+        if (row.status === 'approved') summary.approved += 1;
+        else if (row.status === 'rejected') summary.rejected += 1;
+        else summary.pending += 1;
+    }
+    return summary;
+}
+
+export async function getProjectInboxCounts(projectId) {
+    let pendingAccess = 0;
+    let pendingSubmissions = 0;
+
+    const { count: accessCount, error: accessError } = await supabase
+        .from('project_roles')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', projectId)
+        .eq('role', 'pending');
+
+    if (accessError) {
+        console.error(accessError);
+        throw accessError;
+    }
+    pendingAccess = accessCount || 0;
+
+    const { count: submissionCount, error: submissionError } = await supabase
+        .from('moderation_submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', projectId)
+        .eq('status', 'pending');
+
+    if (submissionError) {
+        if (isMissingSchemaError(submissionError)) {
+            pendingSubmissions = 0;
+        } else {
+            console.error(submissionError);
+            throw submissionError;
+        }
+    } else {
+        pendingSubmissions = submissionCount || 0;
+    }
+
+    return {
+        pendingAccess,
+        pendingSubmissions,
+        total: pendingAccess + pendingSubmissions
+    };
+}
+
+export async function reviewModerationSubmission(submissionId, { decision, note = '' }) {
+    const normalized = (decision || '').toLowerCase();
+    if (!['approved', 'rejected'].includes(normalized)) {
+        throw new Error('Decision must be approved or rejected');
+    }
+
+    const { data, error } = await supabase.rpc('review_moderation_submission', {
+        p_submission_id: submissionId,
+        p_decision: normalized,
+        p_note: note || ''
+    });
+    if (error) { console.error(error); throw error; }
+    return data;
+}
+
 // ── Places ────────────────────────────────────────────────
 
-export async function createPlace({ projectId, name, description, lat, lng, category }) {
+export async function createPlace({ projectId, name, description, lat, lng, category, createdBy = null }) {
     const normalizedCategory = normalizePlaceCategory(category);
-    const { data, error } = await supabase.from('places').insert({
+    const insert = {
         project_id: projectId,
         name: name || 'Unnamed Place',
         description: description || null,
         lat,
         lng,
         category: normalizedCategory
+    };
+    if (createdBy) insert.created_by = createdBy;
+
+    const { data, error } = await supabase.from('places').insert({
+        ...insert
     }).select().single();
     if (error) { console.error(error); throw error; }
-    return mapPlace(data);
+    const aliases = await getAliasesForPlaceIds([data.id]);
+    return mapPlace(data, aliases[data.id] || []);
 }
 
 export async function updatePlace(id, changes) {
@@ -348,10 +631,12 @@ export async function updatePlace(id, changes) {
     if (changes.projectId) { update.project_id = changes.projectId; delete update.projectId; }
     if (changes.description !== undefined) { update.description = changes.description || null; }
     if (changes.category !== undefined) { update.category = normalizePlaceCategory(changes.category); }
+    if (changes.pinnedImageId !== undefined) { update.pinned_image_id = changes.pinnedImageId; delete update.pinnedImageId; }
 
     const { data, error } = await supabase.from('places').update(update).eq('id', id).select().single();
     if (error) { console.error(error); throw error; }
-    return mapPlace(data);
+    const aliases = await getAliasesForPlaceIds([data.id]);
+    return mapPlace(data, aliases[data.id] || []);
 }
 
 export async function deletePlace(id) {
@@ -372,19 +657,83 @@ export async function deletePlace(id) {
 export async function getPlacesByProject(projectId) {
     const { data, error } = await supabase.from('places').select('*').eq('project_id', projectId);
     if (error) { console.error(error); return []; }
-    return data.map(mapPlace);
+    const ids = (data || []).map(row => row.id);
+    const aliasMap = await getAliasesForPlaceIds(ids);
+    return (data || []).map(row => mapPlace(row, aliasMap[row.id] || []));
 }
 
 export async function getPlace(id) {
     const { data, error } = await supabase.from('places').select('*').eq('id', id).single();
     if (error) { console.error(error); return null; }
-    return mapPlace(data);
+    const aliasMap = await getAliasesForPlaceIds([data.id]);
+    return mapPlace(data, aliasMap[data.id] || []);
+}
+
+export async function getPlaceNameAliases(placeId) {
+    const { data, error } = await supabase
+        .from('place_name_aliases')
+        .select('*')
+        .eq('place_id', placeId)
+        .order('start_year', { ascending: true, nullsFirst: true });
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        throw error;
+    }
+    return (data || []).map(mapAlias);
+}
+
+export async function addPlaceNameAlias({ placeId, projectId, alias, startYear = null, endYear = null, note = '' }) {
+    const cleaned = (alias || '').trim();
+    if (!cleaned) throw new Error('Historical name cannot be empty');
+
+    const { data, error } = await supabase
+        .from('place_name_aliases')
+        .insert({
+            place_id: placeId,
+            project_id: projectId,
+            alias: cleaned,
+            start_year: safeInt(startYear),
+            end_year: safeInt(endYear),
+            note: note || ''
+        })
+        .select()
+        .single();
+    if (error) { console.error(error); throw error; }
+    return mapAlias(data);
+}
+
+export async function getPlaceLocationHistory(placeId, limit = 15) {
+    const { data, error } = await supabase
+        .from('place_location_history')
+        .select('*')
+        .eq('place_id', placeId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        return [];
+    }
+    return data || [];
+}
+
+export async function setPlacePinnedImage(placeId, imageId = null) {
+    const { data, error } = await supabase
+        .from('places')
+        .update({ pinned_image_id: imageId || null })
+        .eq('id', placeId)
+        .select()
+        .single();
+    if (error) { console.error(error); throw error; }
+    const aliasMap = await getAliasesForPlaceIds([data.id]);
+    return mapPlace(data, aliasMap[data.id] || []);
 }
 
 // ── Time Entries ──────────────────────────────────────────
 
-export async function createTimeEntry({ placeId, yearStart, yearEnd, title, summary, source, sourceType, confidence }) {
-    const { data, error } = await supabase.from('time_entries').insert({
+export async function createTimeEntry({ placeId, yearStart, yearEnd, title, summary, source, sourceType, confidence, createdBy = null }) {
+    const insert = {
         place_id: placeId,
         year_start: yearStart || new Date().getFullYear(),
         year_end: yearEnd || null,
@@ -393,6 +742,11 @@ export async function createTimeEntry({ placeId, yearStart, yearEnd, title, summ
         source: source || '',
         source_type: sourceType || 'user',
         confidence: confidence || 'likely'
+    };
+    if (createdBy) insert.created_by = createdBy;
+
+    const { data, error } = await supabase.from('time_entries').insert({
+        ...insert
     }).select().single();
     if (error) { console.error(error); throw error; }
     return mapEntry(data);
@@ -463,7 +817,7 @@ export async function getProjectYearRange(projectId) {
 
 // ── Images ────────────────────────────────────────────────
 
-export async function addImage({ timeEntryId, blob, caption, yearTaken, credit }) {
+export async function addImage({ timeEntryId, blob, caption, yearTaken, credit, moderationStatus = null }) {
     const ext = blob.type.split('/')[1] || 'jpg';
     const filename = `${timeEntryId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
     const uploadOpts = { cacheControl: '3600', upsert: false };
@@ -481,27 +835,30 @@ export async function addImage({ timeEntryId, blob, caption, yearTaken, credit }
     }
     if (uploadError) { console.error('Upload error', uploadError); throw uploadError; }
 
-    const { data, error } = await supabase.from('images').insert({
+    const insert = {
         time_entry_id: timeEntryId,
         storage_path: encodeStoragePath(usedBucket, filename),
         caption: caption || '',
         year_taken: yearTaken || null,
         credit: credit || ''
-    }).select().single();
+    };
+    if (moderationStatus) insert.moderation_status = moderationStatus;
+
+    const { data, error } = await supabase.from('images').insert(insert).select().single();
 
     if (error) { console.error(error); throw error; }
     const img = mapImage(data);
     return { ...img, publicUrl: getImageUrl(img.storagePath) };
 }
 
-export async function getImagesForEntry(timeEntryId) {
+export async function getImagesForEntry(timeEntryId, { includeUnapproved = false } = {}) {
     const { data, error } = await supabase.from('images').select('*').eq('time_entry_id', timeEntryId);
     if (error) { console.error(error); return []; }
 
-    return data.map(img => {
+    return (data || []).map(img => {
         const mapped = mapImage(img);
         return { ...mapped, publicUrl: getImageUrl(mapped.storagePath) };
-    });
+    }).filter(img => includeUnapproved || img.moderationStatus === 'approved');
 }
 
 export async function deleteImage(id) {
@@ -517,18 +874,121 @@ export async function deleteImage(id) {
     if (error) console.error(error);
 }
 
+export async function getImageVoteSummary(imageIds) {
+    const ids = [...new Set((imageIds || []).filter(Boolean))];
+    if (ids.length === 0) return {};
+
+    const session = await getSession();
+    const currentUserId = session?.user?.id || null;
+    const { data, error } = await supabase
+        .from('image_votes')
+        .select('image_id, user_id, vote')
+        .in('image_id', ids);
+
+    if (error) {
+        if (isMissingSchemaError(error)) return {};
+        console.error(error);
+        throw error;
+    }
+
+    const byImage = {};
+    for (const id of ids) {
+        byImage[id] = { score: 0, totalVotes: 0, userVote: 0 };
+    }
+
+    for (const row of data || []) {
+        if (!byImage[row.image_id]) {
+            byImage[row.image_id] = { score: 0, totalVotes: 0, userVote: 0 };
+        }
+        byImage[row.image_id].score += row.vote;
+        byImage[row.image_id].totalVotes += 1;
+        if (currentUserId && row.user_id === currentUserId) {
+            byImage[row.image_id].userVote = row.vote;
+        }
+    }
+
+    return byImage;
+}
+
+export async function voteImage(imageId, projectId, vote) {
+    const session = await getSession();
+    if (!session) throw new Error('Must be signed in to vote');
+    if (![1, -1, 0].includes(vote)) throw new Error('Vote must be 1, -1, or 0');
+
+    if (vote === 0) {
+        const { error } = await supabase
+            .from('image_votes')
+            .delete()
+            .eq('image_id', imageId)
+            .eq('user_id', session.user.id);
+        if (error) { console.error(error); throw error; }
+        return true;
+    }
+
+    const { error } = await supabase
+        .from('image_votes')
+        .upsert({
+            image_id: imageId,
+            project_id: projectId,
+            user_id: session.user.id,
+            vote
+        }, { onConflict: 'image_id,user_id' });
+    if (error) { console.error(error); throw error; }
+    return true;
+}
+
+export async function getPrimaryPlaceImage(placeId) {
+    const entries = await getTimeEntriesForPlace(placeId);
+    const allImages = [];
+    for (const e of entries) {
+        const images = await getImagesForEntry(e.id);
+        for (const img of images) {
+            if (img.moderationStatus !== 'approved') continue;
+            allImages.push({ ...img, entryYearStart: e.yearStart, effectiveYear: img.yearTaken || e.yearStart });
+        }
+    }
+    if (allImages.length === 0) return null;
+
+    const place = await getPlace(placeId);
+    if (place?.pinnedImageId) {
+        const pinned = allImages.find(img => img.id === place.pinnedImageId);
+        if (pinned) return { ...pinned, isPinned: true };
+    }
+
+    const voteMap = await getImageVoteSummary(allImages.map(img => img.id));
+    allImages.sort((a, b) => {
+        const aScore = (voteMap[a.id]?.score || 0) * 1.8 + imageQualityScore(a);
+        const bScore = (voteMap[b.id]?.score || 0) * 1.8 + imageQualityScore(b);
+        return bScore - aScore;
+    });
+    return { ...allImages[0], isPinned: false };
+}
+
 export async function getBestImageForYear(placeId, year) {
     const entries = await getTimeEntriesForPlace(placeId);
     const allImages = [];
     for (const e of entries) {
         const images = await getImagesForEntry(e.id);
         for (const img of images) {
+            if (img.moderationStatus !== 'approved') continue;
             allImages.push({ ...img, entryYearStart: e.yearStart, effectiveYear: img.yearTaken || e.yearStart });
         }
     }
     if (allImages.length === 0) return null;
-    allImages.sort((a, b) => Math.abs(a.effectiveYear - year) - Math.abs(b.effectiveYear - year));
-    return allImages[0];
+
+    const place = await getPlace(placeId);
+    if (place?.pinnedImageId) {
+        const pinned = allImages.find(img => img.id === place.pinnedImageId);
+        if (pinned) return { ...pinned, isPinned: true };
+    }
+
+    const voteMap = await getImageVoteSummary(allImages.map(img => img.id));
+    allImages.sort((a, b) => {
+        const aScore = scoreImageForYear(a, year, voteMap[a.id]?.score || 0);
+        const bScore = scoreImageForYear(b, year, voteMap[b.id]?.score || 0);
+        return bScore - aScore;
+    });
+    return { ...allImages[0], isPinned: false };
 }
 
 // ── Overview History ───────────────────────────────────────
@@ -664,6 +1124,11 @@ export async function exportProjectGeoJSON(projectId) {
             properties: {
                 id: place.id,
                 name: place.name,
+                aliases: (place.aliases || []).map(a => ({
+                    name: a.alias,
+                    startYear: a.startYear,
+                    endYear: a.endYear
+                })),
                 category: place.category,
                 createdAt: place.createdAt,
                 entries: entriesWithImages

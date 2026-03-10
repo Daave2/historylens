@@ -10,6 +10,7 @@ import {
   addImage,
   createOverviewRevision,
   getPlace,
+  getBestEntryForYear,
   getTimeEntriesForPlace,
   updatePlace,
   getPlacesByProject,
@@ -20,7 +21,12 @@ import {
   getUserRole,
   updateProfile,
   getProfiles,
-  exportProjectGeoJSON
+  exportProjectGeoJSON,
+  submitPlaceSuggestion,
+  submitEntrySuggestion,
+  submitPlaceMoveSuggestion,
+  submitPlaceNameSuggestion,
+  addPlaceNameAlias
 } from './data/store.js';
 import { generatePlaceOverview } from './ai/ai.js';
 
@@ -39,16 +45,50 @@ import ProfileModal from './components/ProfileModal.js';
 import Dashboard from './components/Dashboard.js';
 import LandingPage from './components/LandingPage.js';
 import ProjectSettings from './components/ProjectSettings.js';
+import GuideModal from './components/GuideModal.js';
 
 // ── App State ──────────────────────────────────────────────
 let currentProject = null;
 let currentUser = null;
 let selectedYear = new Date().getFullYear();
 let currentVisiblePlaceIds = null; // null means all are visible
+let guideModal = null;
+const GUIDE_STORAGE = {
+  seen: 'historylens.quick-guide.shown.v1',
+  auto: 'historylens.quick-guide.auto.v1'
+};
+
+function isAutoGuideEnabled() {
+  try {
+    return localStorage.getItem(GUIDE_STORAGE.auto) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function setAutoGuideEnabled(enabled) {
+  try {
+    localStorage.setItem(GUIDE_STORAGE.auto, enabled ? '1' : '0');
+  } catch {
+    // Ignore storage write issues.
+  }
+}
+
+function resetGuideSeenState() {
+  try {
+    localStorage.removeItem(GUIDE_STORAGE.seen);
+  } catch {
+    // Ignore storage write issues.
+  }
+}
 
 // ── Init ───────────────────────────────────────────────────
 async function init() {
   const authModal = new AuthModal();
+  guideModal = new GuideModal();
+  let maybeAutoOpenDashboardGuide = () => { };
+  let hasAutoGuideShown = false;
+
   const profileModal = new ProfileModal({
     onSave: async (updates) => {
       await updateProfile(updates);
@@ -122,6 +162,7 @@ async function init() {
         // If signed in, always go to dashboard (hide landing)
         if (window.landingComponent) window.landingComponent.hide();
         window.dashboardComponent.show(user);
+        maybeAutoOpenDashboardGuide();
       } else {
         // If signed out, only update dashboard if they are already looking at it.
         // If the landing page is visible, keep it visibile.
@@ -145,73 +186,152 @@ async function init() {
       initProjectView(currentProject);
     } catch (err) {
       console.error(err);
-      alert("Project not found or private.");
-      window.location.href = import.meta.env.BASE_URL || '/';
+      showToast('Project not found or private. Redirecting to home…', 'error');
+      window.setTimeout(() => {
+        window.location.href = import.meta.env.BASE_URL || '/';
+      }, 1200);
     }
   } else {
+    const requestAuthFromHome = () => {
+      authModal.show({
+        onSuccess: (user) => {
+          showToast(`Signed in as ${user.email}`, 'success');
+          if (window.landingComponent && !currentProject) {
+            window.landingComponent.hide();
+            window.dashboardComponent.show(user);
+            maybeAutoOpenDashboardGuide();
+          }
+        }
+      });
+    };
+
     // Show Dashboard or Landing Page Context
     const dashboard = new Dashboard({
       onSelectProject: (id) => {
         window.location.search = `?project=${id}`;
       },
-      onAuthRequest: () => {
-        authModal.show({
-          onSuccess: (user) => {
-            showToast(`Signed in as ${user.email}`, 'success');
-            // If they just signed in and are on landing page, maybe bounce them to dashboard
-            if (window.landingComponent && !currentProject) {
-              window.landingComponent.hide();
-              window.dashboardComponent.show(user);
-            }
-          }
+      onAuthRequest: requestAuthFromHome,
+      onGuideRequest: () => {
+        guideModal.showDashboard({
+          isSignedIn: !!currentUser,
+          autoGuideEnabled: isAutoGuideEnabled()
         });
       }
     });
     window.dashboardComponent = dashboard;
+
+    maybeAutoOpenDashboardGuide = () => {
+      if (hasAutoGuideShown) return;
+      if (!isAutoGuideEnabled()) return;
+      try {
+        if (localStorage.getItem(GUIDE_STORAGE.seen)) {
+          hasAutoGuideShown = true;
+          return;
+        }
+        localStorage.setItem(GUIDE_STORAGE.seen, '1');
+      } catch {
+        // Ignore localStorage access issues.
+      }
+      hasAutoGuideShown = true;
+
+      setTimeout(() => {
+        if (!currentProject && dashboard.container?.style.display !== 'none') {
+          guideModal.showDashboard({
+            isSignedIn: !!currentUser,
+            autoGuideEnabled: isAutoGuideEnabled()
+          });
+        }
+      }, 300);
+    };
+
+    guideModal.setHandlers({
+      onSwitchDashboardTab: (tab) => {
+        dashboard.setTab(tab);
+        const targetBtn = dashboard.container.querySelector(`.tab-btn[data-tab="${tab}"]`);
+        spotlightElement(targetBtn);
+      },
+      onAuthRequest: requestAuthFromHome,
+      onToggleAutoGuide: (enabled) => {
+        setAutoGuideEnabled(enabled);
+        showToast(enabled ? 'Auto guide turned on' : 'Auto guide turned off', 'info');
+      },
+      onResetGuide: () => {
+        resetGuideSeenState();
+        hasAutoGuideShown = false;
+        showToast('Onboarding reset. It will auto-open on next dashboard visit.', 'success');
+      }
+    });
 
     // Create landing page
     const landing = new LandingPage({
       onExplore: () => {
         landing.hide();
         dashboard.show(currentUser);
+        maybeAutoOpenDashboardGuide();
       },
-      onAuthRequest: () => {
-        authModal.show({
-          onSuccess: (user) => {
-            showToast(`Signed in as ${user.email}`, 'success');
-            landing.hide();
-            dashboard.show(user);
-          }
-        });
-      }
+      onAuthRequest: requestAuthFromHome
     });
     window.landingComponent = landing;
 
     if (currentUser) {
       dashboard.show(currentUser);
+      maybeAutoOpenDashboardGuide();
     } else {
       landing.show();
     }
   }
 }
 
+function getRolePermissions(role) {
+  const canEditPublished = role === 'owner' || role === 'admin' || role === 'editor';
+  const canSubmit = canEditPublished || role === 'pending';
+  return {
+    canEditPublished,
+    canSubmit,
+    isReadOnly: !canEditPublished
+  };
+}
+
 async function initProjectView(project) {
   let currentUserRole = currentUser ? await getUserRole(project.id) : null;
-  const isReadOnly = !currentUserRole || currentUserRole === 'pending' || (currentUserRole !== 'owner' && currentUserRole !== 'editor' && currentUserRole !== 'admin');
+  let permissions = getRolePermissions(currentUserRole);
+  const mobileSidebarQuery = window.matchMedia('(max-width: 900px)');
+  let sidebar = null;
+  let placeDetail = null;
+  let placeForm = null;
+  let entryForm = null;
+
+  const applyRoleChange = (nextRole) => {
+    currentUserRole = nextRole;
+    permissions = getRolePermissions(currentUserRole);
+    if (sidebar) sidebar.setProject(currentProject, permissions, currentUserRole);
+  };
+
+  const showPlaceDetail = (place) => {
+    if (!placeDetail) return;
+    placeDetail.show(
+      place,
+      permissions.isReadOnly,
+      currentUser,
+      currentUserRole,
+      permissions.canSubmit && !permissions.canEditPublished
+    );
+  };
 
   // Map
   const mapView = new MapView('map-container', {
     centre: project.centre,
     zoom: project.defaultZoom,
     onMapClick: (latlng) => {
-      if (isReadOnly) return;
+      if (!permissions.canSubmit) return;
+      if (!placeForm) return;
       mapView.setAddMode(false);
-      placeForm.show(latlng);
+      placeForm.show(latlng, { suggestionMode: !permissions.canEditPublished });
     },
     onMarkerClick: (place) => {
       sidebar.setActive(place.id);
       placeDetail.activeTab = 'overview';
-      placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
+      showPlaceDetail(place);
     },
     onMarkerHover: (place, point) => {
       hoverCard.show(place, point, selectedYear);
@@ -237,21 +357,29 @@ async function initProjectView(project) {
   });
   await timeSlider.setRange(project.id);
 
+  const startAddPlaceFlow = () => {
+    if (!permissions.canSubmit) return false;
+    mapView.setAddMode(true);
+    const actionLabel = permissions.canEditPublished ? 'place a marker' : 'suggest a place for review';
+    showToast(`Click on the map to ${actionLabel}`, 'info');
+    return true;
+  };
+
   // Sidebar
-  const sidebar = new Sidebar({
+  sidebar = new Sidebar({
     onPlaceClick: (place) => {
       mapView.panTo(place.lat, place.lng);
       placeDetail.activeTab = 'overview';
-      placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
+      showPlaceDetail(place);
+      if (mobileSidebarQuery.matches) {
+        sidebar.el.classList.add('collapsed');
+      }
     },
     onFilterChange: (visibleIds) => {
       currentVisiblePlaceIds = new Set(visibleIds);
       updateMarkerStates(mapView, project.id, selectedYear);
     },
-    onAddPlace: () => {
-      mapView.setAddMode(true);
-      showToast('Click on the map to place a marker', 'info');
-    },
+    onAddPlace: () => startAddPlaceFlow(),
     onImport: async () => {
       try {
         const data = await readFileAsJSON();
@@ -289,18 +417,21 @@ async function initProjectView(project) {
         },
         onSaveProjectInfo: async (changes) => {
           currentProject = await updateProject(currentProject.id, changes);
-          sidebar.setProject(currentProject, isReadOnly, currentUserRole);
+          sidebar.setProject(currentProject, permissions, currentUserRole);
         },
         onRefreshRequired: async () => {
           await refreshAll(mapView, sidebar, timeSlider);
+          await sidebar.refreshInboxBadge();
+        },
+        onInboxChanged: async () => {
+          await sidebar.refreshInboxBadge();
         }
       });
     },
     onRequestAccess: () => {
       const handleAccessRequestResult = (result) => {
         const nextRole = result?.role || 'pending';
-        currentUserRole = nextRole;
-        sidebar.setProject(currentProject, isReadOnly, currentUserRole);
+        applyRoleChange(nextRole);
       };
 
       if (!currentUser) {
@@ -315,17 +446,67 @@ async function initProjectView(project) {
       }
       const settingsModal = new ProjectSettings();
       settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
+    },
+    onGuide: () => {
+      guideModal?.showProject({
+        canSubmit: permissions.canSubmit,
+        canEditPublished: permissions.canEditPublished
+      });
     }
   });
-  sidebar.setProject(project, isReadOnly, currentUserRole);
+  sidebar.setProject(project, permissions, currentUserRole);
   await sidebar.loadPlaces(project.id);
 
+  guideModal?.setHandlers({
+    onFocusSearch: () => {
+      const searchInput = document.getElementById('place-search');
+      if (!searchInput) return;
+      const highlightTarget = searchInput.closest('.search-bar') || searchInput;
+      spotlightElement(highlightTarget);
+      searchInput.focus();
+      searchInput.select();
+    },
+    onStartAddPlace: () => {
+      const addBtn = document.getElementById('btn-add-place');
+      if (!permissions.canSubmit || !addBtn || addBtn.style.display === 'none') {
+        showToast('You currently have read-only access in this project.', 'info');
+        return;
+      }
+      spotlightElement(addBtn);
+      startAddPlaceFlow();
+    }
+  });
+
+  let hasAutoCollapsedSidebar = false;
+  const applyResponsiveSidebar = (queryEvent) => {
+    const isMobile = queryEvent?.matches ?? mobileSidebarQuery.matches;
+
+    if (isMobile && !hasAutoCollapsedSidebar) {
+      sidebar.el.classList.add('collapsed');
+      hasAutoCollapsedSidebar = true;
+    } else if (!isMobile) {
+      sidebar.el.classList.remove('collapsed');
+      hasAutoCollapsedSidebar = false;
+    }
+
+    requestAnimationFrame(() => mapView.invalidateSize());
+  };
+
+  applyResponsiveSidebar(mobileSidebarQuery);
+  if (typeof mobileSidebarQuery.addEventListener === 'function') {
+    mobileSidebarQuery.addEventListener('change', applyResponsiveSidebar);
+  } else {
+    mobileSidebarQuery.addListener(applyResponsiveSidebar);
+  }
+
   // Place detail
-  const placeDetail = new PlaceDetail({
+  placeDetail = new PlaceDetail({
     onAddEntry: (place) => {
-      entryForm.show(place);
+      if (!entryForm) return;
+      entryForm.show(place, null, { suggestionMode: !permissions.canEditPublished });
     },
     onEditEntry: (place, entry) => {
+      if (!entryForm) return;
       entryForm.show(place, entry);
     },
     onDeletePlace: async (place) => {
@@ -336,40 +517,130 @@ async function initProjectView(project) {
     onRegenerateOverview: async (placeId) => {
       return regeneratePlaceOverview(placeId, { force: true });
     },
+    onSuggestMove: async (place, suggestion) => {
+      await submitPlaceMoveSuggestion({
+        projectId: project.id,
+        placeId: place.id,
+        fromLat: place.lat,
+        fromLng: place.lng,
+        lat: suggestion.lat,
+        lng: suggestion.lng,
+        reason: suggestion.reason || ''
+      });
+      sidebar.setProject(currentProject, permissions, currentUserRole);
+      showToast('Location correction submitted for moderation', 'success');
+    },
+    onSuggestAlias: async (place, suggestion) => {
+      if (permissions.canEditPublished) {
+        await addPlaceNameAlias({
+          placeId: place.id,
+          projectId: project.id,
+          alias: suggestion.alias,
+          startYear: suggestion.startYear,
+          endYear: suggestion.endYear,
+          note: suggestion.note || ''
+        });
+        await sidebar.loadPlaces(project.id);
+        const refreshed = await getPlace(place.id);
+        if (refreshed) showPlaceDetail(refreshed);
+        showToast('Historical name added', 'success');
+        return;
+      }
+
+      await submitPlaceNameSuggestion({
+        projectId: project.id,
+        placeId: place.id,
+        alias: suggestion.alias,
+        startYear: suggestion.startYear,
+        endYear: suggestion.endYear,
+        note: suggestion.note || ''
+      });
+      sidebar.setProject(currentProject, permissions, currentUserRole);
+      showToast('Historical name suggestion submitted', 'success');
+    },
+    onPickLocationFromMap: ({ lat, lng } = {}) => {
+      return new Promise((resolve) => {
+        const previousOnMapClick = mapView.onMapClick;
+        const previousAddMode = mapView.addMode;
+        const currentZoom = mapView.map.getZoom();
+
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          mapView.panTo(lat, lng, currentZoom);
+        }
+
+        mapView.setAddMode(true);
+        showToast('Click on the map to pick the corrected location. Press Esc to cancel.', 'info');
+
+        const cleanup = (pickedLatLng) => {
+          mapView.onMapClick = previousOnMapClick;
+          mapView.setAddMode(previousAddMode);
+          document.removeEventListener('keydown', onKeyDown);
+          resolve(pickedLatLng);
+        };
+
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          cleanup(null);
+          showToast('Location pick cancelled.', 'info');
+        };
+
+        document.addEventListener('keydown', onKeyDown);
+
+        mapView.onMapClick = (latlng) => {
+          cleanup({ lat: latlng.lat, lng: latlng.lng });
+          showToast(`Picked ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`, 'success');
+        };
+      });
+    },
     onClose: () => { }
   });
 
   // Place form
-  const placeForm = new PlaceForm({
+  placeForm = new PlaceForm({
     mapView,
     onSave: async ({ name, description, category, lat, lng, autoEntries }) => {
-      const place = await createPlace({
-        projectId: project.id,
-        name, description, lat, lng, category
-      });
-      mapView.addMarker(place);
+      if (permissions.canEditPublished) {
+        const place = await createPlace({
+          projectId: project.id,
+          name, description, lat, lng, category
+        });
+        mapView.addMarker(place);
 
-      // Auto-create entries from discovered info
-      if (autoEntries && autoEntries.length > 0) {
-        for (const ae of autoEntries) {
-          await createTimeEntry({
-            placeId: place.id,
-            yearStart: ae.yearStart || new Date().getFullYear(),
-            yearEnd: ae.yearEnd || null,
-            title: ae.title || name,
-            summary: ae.summary || '',
-            source: ae.source || '',
-            sourceType: ae.sourceType || 'archive',
-            confidence: ae.confidence || 'likely'
-          });
+        // Auto-create entries from discovered info
+        if (autoEntries && autoEntries.length > 0) {
+          for (const ae of autoEntries) {
+            await createTimeEntry({
+              placeId: place.id,
+              yearStart: ae.yearStart || new Date().getFullYear(),
+              yearEnd: ae.yearEnd || null,
+              title: ae.title || name,
+              summary: ae.summary || '',
+              source: ae.source || '',
+              sourceType: ae.sourceType || 'archive',
+              confidence: ae.confidence || 'likely'
+            });
+          }
         }
-      }
-      await regeneratePlaceOverview(place.id, { force: false });
+        await regeneratePlaceOverview(place.id, { force: false });
 
-      await sidebar.loadPlaces(project.id);
-      await timeSlider.setRange(project.id);
-      const entryCount = autoEntries?.length || 0;
-      showToast(`"${name}" added${entryCount > 0 ? ` with ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}` : ''}`, 'success');
+        await sidebar.loadPlaces(project.id);
+        await timeSlider.setRange(project.id);
+        const entryCount = autoEntries?.length || 0;
+        showToast(`"${name}" added${entryCount > 0 ? ` with ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}` : ''}`, 'success');
+        return;
+      }
+
+      await submitPlaceSuggestion({
+        projectId: project.id,
+        name,
+        description,
+        category,
+        lat,
+        lng,
+        autoEntries
+      });
+      sidebar.setProject(currentProject, permissions, currentUserRole);
+      showToast('Place suggestion submitted for approval', 'success');
     },
     onCancel: () => {
       mapView.setAddMode(false);
@@ -377,10 +648,13 @@ async function initProjectView(project) {
   });
 
   // Entry form
-  const entryForm = new EntryForm({
+  entryForm = new EntryForm({
     onSave: async (data) => {
       let savedEntry;
       if (data.entryId) {
+        if (!permissions.canEditPublished) {
+          throw new Error('You do not have permission to edit existing entries.');
+        }
         // Editing
         savedEntry = await updateTimeEntry(data.entryId, {
           yearStart: data.yearStart,
@@ -408,33 +682,57 @@ async function initProjectView(project) {
         }
         showToast('Entry updated', 'success');
       } else {
-        // Creating
-        savedEntry = await createTimeEntry({
-          placeId: data.placeId,
-          yearStart: data.yearStart,
-          yearEnd: data.yearEnd,
-          title: data.title,
-          summary: data.summary,
-          source: data.source,
-          sourceType: data.sourceType,
-          confidence: data.confidence
-        });
+        if (permissions.canEditPublished) {
+          // Creating
+          savedEntry = await createTimeEntry({
+            placeId: data.placeId,
+            yearStart: data.yearStart,
+            yearEnd: data.yearEnd,
+            title: data.title,
+            summary: data.summary,
+            source: data.source,
+            sourceType: data.sourceType,
+            confidence: data.confidence
+          });
 
-        // Add images
-        for (const img of data.images) {
-          try {
-            await addImage({
-              timeEntryId: savedEntry.id,
-              blob: img.blob,
-              caption: img.caption,
-              yearTaken: img.yearTaken,
-              credit: img.credit
-            });
-          } catch (err) {
-            throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+          // Add images
+          for (const img of data.images) {
+            try {
+              await addImage({
+                timeEntryId: savedEntry.id,
+                blob: img.blob,
+                caption: img.caption,
+                yearTaken: img.yearTaken,
+                credit: img.credit
+              });
+            } catch (err) {
+              throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+            }
           }
+          showToast('Entry added', 'success');
+        } else if (permissions.canSubmit) {
+          await submitEntrySuggestion({
+            projectId: project.id,
+            placeId: data.placeId,
+            yearStart: data.yearStart,
+            yearEnd: data.yearEnd,
+            title: data.title,
+            summary: data.summary,
+            source: data.source,
+            sourceType: data.sourceType,
+            confidence: data.confidence
+          });
+          sidebar.setProject(currentProject, permissions, currentUserRole);
+          showToast(
+            data.images?.length
+              ? 'Entry suggestion submitted (images can be added after approval).'
+              : 'Entry suggestion submitted for approval.',
+            'success'
+          );
+          return;
+        } else {
+          throw new Error('You need edit access to add timeline entries.');
         }
-        showToast('Entry added', 'success');
       }
 
       await timeSlider.setRange(project.id);
@@ -445,7 +743,7 @@ async function initProjectView(project) {
       if (place) {
         // Keep overview as default generally, but jump to timeline after image uploads
         placeDetail.activeTab = data.images?.length ? 'timeline' : 'overview';
-        placeDetail.show(place, isReadOnly, currentUser, currentUserRole);
+        showPlaceDetail(place);
       }
     },
     onCancel: () => { }
@@ -520,6 +818,15 @@ async function refreshAll(mapView, sidebar, timeSlider) {
   await loadMarkers(mapView, currentProject.id);
   await sidebar.loadPlaces(currentProject.id);
   await timeSlider.setRange(currentProject.id);
+}
+
+function spotlightElement(element, durationMs = 1200) {
+  if (!element) return;
+  element.classList.remove('guide-highlight');
+  // Force a reflow so the pulse can be replayed repeatedly.
+  void element.offsetWidth;
+  element.classList.add('guide-highlight');
+  window.setTimeout(() => element.classList.remove('guide-highlight'), durationMs);
 }
 
 async function regeneratePlaceOverview(placeId, { force = false } = {}) {
