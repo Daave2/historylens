@@ -102,7 +102,7 @@ export default class MapOverlay {
             position: 'absolute',
             top: '16px',
             right: '16px',
-            zIndex: '1000',
+            zIndex: '300',
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
             transition: 'all 0.3s ease'

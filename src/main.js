@@ -82,6 +82,133 @@ function resetGuideSeenState() {
   }
 }
 
+function getBasePath() {
+  const base = import.meta.env.BASE_URL || '/';
+  return base.endsWith('/') ? base : `${base}/`;
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  const basePath = getBasePath();
+  const swUrl = `${basePath}sw.js`;
+  window.addEventListener('load', async () => {
+    try {
+      await navigator.serviceWorker.register(swUrl, { scope: basePath });
+    } catch (err) {
+      console.warn('Service worker registration failed:', err);
+    }
+  });
+}
+
+function isStandaloneMode() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function isIosSafari() {
+  const ua = navigator.userAgent || '';
+  const ios = /iphone|ipad|ipod/i.test(ua);
+  const safari = /safari/i.test(ua) && !/crios|fxios|edgios|opios/i.test(ua);
+  return ios && safari;
+}
+
+function showIosInstallGuide() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.display = 'flex';
+  overlay.style.zIndex = '3600';
+  overlay.innerHTML = `
+    <div class="modal glass-panel" style="max-width: 460px;">
+      <h3 style="margin-bottom: var(--space-sm);">Install On iPhone / iPad</h3>
+      <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">
+        Safari does not show an automatic install prompt. Add HistoryLens manually:
+      </p>
+      <ol style="margin: 0 0 var(--space-lg) var(--space-lg); color: var(--text-secondary); line-height: 1.7;">
+        <li>Tap the <strong>Share</strong> button in Safari.</li>
+        <li>Scroll down and tap <strong>Add to Home Screen</strong>.</li>
+        <li>Tap <strong>Add</strong> in the top-right corner.</li>
+      </ol>
+      <div style="display:flex; justify-content:flex-end;">
+        <button class="btn btn-primary" id="ios-install-ok">Got it</button>
+      </div>
+    </div>
+  `;
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector('#ios-install-ok')?.addEventListener('click', close);
+  document.body.appendChild(overlay);
+}
+
+function setupInstallPromptUi() {
+  let deferredInstallPrompt = null;
+  const wiredButtons = new WeakSet();
+
+  const shouldShowManualIosInstall = () => isIosSafari() && !isStandaloneMode();
+
+  const updateButtons = () => {
+    const showButtons = !isStandaloneMode() && (Boolean(deferredInstallPrompt) || shouldShowManualIosInstall());
+    const buttonLabel = deferredInstallPrompt ? 'Install App' : 'Add To Home';
+
+    document.querySelectorAll('.install-trigger').forEach((button) => {
+      if (!wiredButtons.has(button)) {
+        button.addEventListener('click', onInstallClick);
+        wiredButtons.add(button);
+      }
+      button.style.display = showButtons ? 'inline-flex' : 'none';
+      button.textContent = buttonLabel;
+    });
+  };
+
+  const onInstallClick = async (event) => {
+    event.preventDefault();
+    if (isStandaloneMode()) {
+      updateButtons();
+      return;
+    }
+
+    if (deferredInstallPrompt) {
+      const promptEvent = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      updateButtons();
+      promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice?.outcome === 'accepted') {
+        showToast('Install started.', 'success');
+      } else {
+        showToast('Install dismissed.', 'info');
+        updateButtons();
+      }
+      return;
+    }
+
+    if (shouldShowManualIosInstall()) {
+      showIosInstallGuide();
+      return;
+    }
+
+    showToast('Install is available when your browser marks this app as installable.', 'info');
+  };
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    updateButtons();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    showToast('App installed successfully.', 'success');
+    updateButtons();
+  });
+
+  const observer = new MutationObserver(() => updateButtons());
+  observer.observe(document.body, { childList: true, subtree: true });
+  updateButtons();
+}
+
 function installMobileModalViewportFixes() {
   const root = document.documentElement;
   let syncedInput = null;
@@ -120,6 +247,8 @@ function installMobileModalViewportFixes() {
 
 // ── Init ───────────────────────────────────────────────────
 async function init() {
+  registerServiceWorker();
+  setupInstallPromptUi();
   installMobileModalViewportFixes();
   const authModal = new AuthModal();
   guideModal = new GuideModal();

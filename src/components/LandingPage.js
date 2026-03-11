@@ -22,6 +22,7 @@ export default class LandingPage {
                     <h1>History<span class="accent">Lens</span></h1>
                 </div>
                 <div class="nav-actions">
+                    <button class="btn btn-ghost install-trigger" id="landing-install-btn" style="display:none;">Install App</button>
                     <button class="btn btn-ghost" id="landing-login-btn">Sign In</button>
                     <button class="btn btn-primary" id="landing-signup-btn">Get Started</button>
                 </div>

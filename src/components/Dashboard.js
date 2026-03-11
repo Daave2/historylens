@@ -24,7 +24,7 @@ export default class Dashboard {
             <h1>History<span class="accent">Lens</span></h1>
           </div>
           <div class="dashboard-actions">
-            <!-- Auth button handled at top level, but we can put one here too -->
+            <button class="btn btn-ghost install-trigger" id="dashboard-install-btn" style="display:none;">Install App</button>
           </div>
         </header>
 
