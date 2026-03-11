@@ -91,6 +91,7 @@
   --sidebar-width: 340px;
   --time-slider-height: 80px;
   --header-height: 56px;
+  --visual-viewport-height: 100dvh;
   --border-light: rgba(255, 255, 255, 0.08);
   --scrollbar-size: 10px;
   --scrollbar-track: rgba(255, 255, 255, 0.04);
@@ -757,12 +758,16 @@ input[type="range"]::-moz-range-thumb {
   position: fixed;
   inset: 0;
   z-index: 500;
+  min-height: var(--visual-viewport-height, 100dvh);
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-2xl);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   animation: fadeIn var(--duration-normal) var(--ease-out);
 }
 
@@ -772,6 +777,7 @@ input[type="range"]::-moz-range-thumb {
   max-height: 85vh;
   border-radius: var(--radius-xl);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-2xl);
   position: relative;
   animation: slideUp var(--duration-slow) var(--ease-spring);
@@ -786,6 +792,44 @@ input[type="range"]::-moz-range-thumb {
   top: var(--space-lg);
   right: var(--space-lg);
   z-index: 10;
+}
+
+/* --- Project Settings Layout --- */
+.ps-layout {
+  display: flex;
+  min-height: 400px;
+  max-height: 70vh;
+}
+
+.ps-nav {
+  width: 180px;
+  flex: 0 0 180px;
+  border-right: 1px solid var(--glass-border);
+  padding: var(--space-md) 0;
+  background: rgba(0, 0, 0, 0.2);
+  overflow-y: auto;
+}
+
+.ps-tabs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ps-tab {
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-weight: 500;
+  border-left: 3px solid transparent;
+  user-select: none;
+}
+
+.ps-tab-content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xl);
+  overflow-y: auto;
 }
 
 /* --- Quick Guide --- */
@@ -1477,15 +1521,50 @@ input[type="range"]::-moz-range-thumb {
   .modal-overlay {
     align-items: flex-end;
     padding: var(--space-sm);
+    padding-top: calc(var(--space-sm) + env(safe-area-inset-top));
     padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom));
   }
 
   .modal {
     max-width: 100%;
     margin: 0;
-    max-height: min(92dvh, 92vh);
+    max-height: calc(var(--visual-viewport-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - (var(--space-sm) * 2));
     padding: var(--space-xl);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .ps-layout {
+    flex-direction: column;
+    min-height: 0;
+    max-height: min(72dvh, 72vh);
+  }
+
+  .ps-nav {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border);
+    padding: var(--space-sm) 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .ps-tabs {
+    display: flex;
+    gap: var(--space-xs);
+    padding: 0 var(--space-sm);
+    min-width: max-content;
+  }
+
+  .ps-tab {
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .ps-tab-content {
+    padding: var(--space-lg);
   }
 
   .guide-modal {

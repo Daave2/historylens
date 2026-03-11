@@ -194,25 +194,32 @@ export default class ProjectSettings {
         titleEl.textContent = 'Project Settings';
 
         bodyEl.innerHTML = `
-      <div style="display: flex; min-height: 400px; max-height: 70vh;">
+      <div class="ps-layout">
         <!-- Sidebar Navigation -->
-        <div style="width: 180px; border-right: 1px solid var(--glass-border); padding: var(--space-md) 0; background: rgba(0,0,0,0.2);">
-          <ul id="ps-tabs" style="list-style: none; padding: 0; margin: 0;">
-            <li class="ps-tab active" data-tab="general" style="padding: var(--space-sm) var(--space-md); cursor: pointer; transition: background 0.15s; font-weight: 500;">General</li>
-            <li class="ps-tab" data-tab="collab" style="padding: var(--space-sm) var(--space-md); cursor: pointer; transition: background 0.15s; font-weight: 500;">Collaborators</li>
-            ${this.currentUserRole === 'owner' || this.currentUserRole === 'admin' ? `<li class="ps-tab" data-tab="mod" style="padding: var(--space-sm) var(--space-md); cursor: pointer; transition: background 0.15s; font-weight: 500;">Moderation</li>` : ''}
-            ${this.currentUserRole === 'owner' ? `<li class="ps-tab" data-tab="danger" style="padding: var(--space-sm) var(--space-md); cursor: pointer; transition: background 0.15s; color: var(--danger); font-weight: 500;">Danger Zone</li>` : ''}
+        <div class="ps-nav">
+          <ul id="ps-tabs" class="ps-tabs">
+            <li class="ps-tab active" data-tab="general">General</li>
+            <li class="ps-tab" data-tab="collab">Collaborators</li>
+            ${this.currentUserRole === 'owner' || this.currentUserRole === 'admin' ? `<li class="ps-tab" data-tab="mod">Moderation</li>` : ''}
+            ${this.currentUserRole === 'owner' ? `<li class="ps-tab" data-tab="danger" style="color: var(--danger);">Danger Zone</li>` : ''}
           </ul>
         </div>
         
         <!-- Tab Content Area -->
-        <div id="ps-tab-content" style="flex: 1; padding: var(--space-xl); overflow-y: auto;">
+        <div id="ps-tab-content" class="ps-tab-content">
           <div style="text-align:center; color: var(--text-muted);">Loading...</div>
         </div>
       </div>
     `;
 
-        // Add basic hover/active styling dynamically to avoiding adding CSS class right now
+        const applyActiveTabStyle = (tab, active) => {
+            const compactTabs = window.matchMedia('(max-width: 768px)').matches;
+            tab.style.background = active ? 'var(--bg-surface)' : 'transparent';
+            tab.style.borderLeft = compactTabs ? 'none' : (active ? '3px solid var(--accent)' : '3px solid transparent');
+            tab.style.borderBottom = compactTabs ? (active ? '2px solid var(--accent)' : '2px solid transparent') : 'none';
+        };
+
+        // Add basic hover/active styling dynamically.
         const tabs = bodyEl.querySelectorAll('.ps-tab');
         tabs.forEach(tab => {
             tab.addEventListener('mouseover', () => { if (!tab.classList.contains('active')) tab.style.background = 'var(--bg-hover)'; });
@@ -220,12 +227,10 @@ export default class ProjectSettings {
             tab.addEventListener('click', () => {
                 tabs.forEach(t => {
                     t.classList.remove('active');
-                    t.style.background = 'transparent';
-                    t.style.borderLeft = 'none';
+                    applyActiveTabStyle(t, false);
                 });
                 tab.classList.add('active');
-                tab.style.background = 'var(--bg-surface)';
-                tab.style.borderLeft = '3px solid var(--accent)';
+                applyActiveTabStyle(tab, true);
                 this.switchTab(tab.dataset.tab);
             });
         });

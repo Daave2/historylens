@@ -711,7 +711,7 @@ export default class PlaceDetail {
       overlay.style.display = 'flex';
       overlay.style.zIndex = '3000';
       overlay.innerHTML = `
-        <div class="modal-content glass-card" style="max-width: 480px; width: 100%; padding: var(--space-xl);">
+        <div class="modal glass-panel" style="max-width: 480px; width: 100%; padding: var(--space-xl);">
           <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Historical Name</h3>
           <div class="form-group">
             <label class="form-label">Name</label>
@@ -777,7 +777,7 @@ export default class PlaceDetail {
       overlay.style.display = 'flex';
       overlay.style.zIndex = '3000';
       overlay.innerHTML = `
-        <div class="modal-content glass-card" style="max-width: 480px; width: 100%; padding: var(--space-xl);">
+        <div class="modal glass-panel" style="max-width: 480px; width: 100%; padding: var(--space-xl);">
           <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Suggest Location Correction</h3>
           <p style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-md);">
             Current: ${escapeHtml(place.lat.toFixed(5))}, ${escapeHtml(place.lng.toFixed(5))}
@@ -866,7 +866,7 @@ export default class PlaceDetail {
       overlay.style.display = 'flex';
       overlay.style.zIndex = '3000';
       overlay.innerHTML = `
-        <div class="modal-content glass-card" style="max-width: 440px; width: 100%; padding: var(--space-xl);">
+        <div class="modal glass-panel" style="max-width: 440px; width: 100%; padding: var(--space-xl);">
           <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Please confirm</h3>
           <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">${escapeHtml(message)}</p>
           <div style="display:flex; justify-content:flex-end; gap: var(--space-sm);">
@@ -897,7 +897,7 @@ export default class PlaceDetail {
       overlay.style.display = 'flex';
       overlay.style.zIndex = '3000';
       overlay.innerHTML = `
-        <div class="modal-content glass-card" style="max-width: 440px; width: 100%; padding: var(--space-xl);">
+        <div class="modal glass-panel" style="max-width: 440px; width: 100%; padding: var(--space-xl);">
           <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">${escapeHtml(title)}</h3>
           <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">${escapeHtml(message)}</p>
           <div style="display:flex; justify-content:flex-end;">

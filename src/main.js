@@ -82,8 +82,45 @@ function resetGuideSeenState() {
   }
 }
 
+function installMobileModalViewportFixes() {
+  const root = document.documentElement;
+  let syncedInput = null;
+
+  const syncViewportHeight = () => {
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
+    root.style.setProperty('--visual-viewport-height', `${Math.round(viewportHeight)}px`);
+  };
+
+  const centerFocusedModalInput = () => {
+    if (!syncedInput || !window.matchMedia('(max-width: 768px)').matches) return;
+    syncedInput.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+  };
+
+  syncViewportHeight();
+  window.addEventListener('resize', syncViewportHeight, { passive: true });
+  window.addEventListener('orientationchange', syncViewportHeight, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncViewportHeight);
+    window.visualViewport.addEventListener('scroll', syncViewportHeight);
+  }
+
+  document.addEventListener('focusin', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.closest('.modal')) return;
+    if (!target.matches('input, textarea, select')) return;
+    syncedInput = target;
+    window.setTimeout(centerFocusedModalInput, 90);
+  });
+
+  document.addEventListener('focusout', () => {
+    syncedInput = null;
+  });
+}
+
 // ── Init ───────────────────────────────────────────────────
 async function init() {
+  installMobileModalViewportFixes();
   const authModal = new AuthModal();
   guideModal = new GuideModal();
   let maybeAutoOpenDashboardGuide = () => { };

@@ -11,6 +11,7 @@ export default class AuthModal {
         this.modal.id = 'auth-modal';
         this.modal.className = 'modal-overlay';
         this.modal.style.display = 'none';
+        this.modal.style.zIndex = '3600';
 
         this.modal.innerHTML = `
       <div class="modal glass-panel" style="max-width: 420px; width: 100%; padding: var(--space-xl);">
