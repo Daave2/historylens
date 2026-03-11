@@ -89,6 +89,16 @@ function getBasePath() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+  if (import.meta.env.DEV) {
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((registration) => registration.unregister());
+      })
+      .catch((err) => {
+        console.warn('Could not clear dev service worker registrations:', err);
+      });
+    return;
+  }
 
   const basePath = getBasePath();
   const swUrl = `${basePath}sw.js`;
@@ -294,10 +304,10 @@ async function init() {
 
   const authBtn = document.getElementById('btn-auth');
   const profileBtn = document.getElementById('btn-profile');
+  const sessionPromise = getSession();
 
-  // Initialize Auth state
-  const session = await getSession();
-  currentUser = session?.user || null;
+  // Render with a signed-out baseline first, then hydrate auth state.
+  currentUser = null;
   updateAuthUI(currentUser);
 
   onAuthStateChange((event, session) => {
@@ -363,6 +373,10 @@ async function init() {
   // Routing Logic
   if (projectIdParam) {
     try {
+      const session = await sessionPromise;
+      currentUser = session?.user || null;
+      updateAuthUI(currentUser);
+
       currentProject = await getProject(projectIdParam);
       if (!currentProject) throw new Error("Project not found");
       initProjectView(currentProject);
@@ -461,6 +475,15 @@ async function init() {
     } else {
       landing.show();
     }
+
+    sessionPromise
+      .then((session) => {
+        currentUser = session?.user || null;
+        updateAuthUI(currentUser);
+      })
+      .catch((err) => {
+        console.error('Could not restore auth session on home route:', err);
+      });
   }
 }
 
