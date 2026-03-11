@@ -9,11 +9,11 @@ export default class AuthModal {
     createDom() {
         this.modal = document.createElement('div');
         this.modal.id = 'auth-modal';
-        this.modal.className = 'modal-overlay glass-panel';
+        this.modal.className = 'modal-overlay';
         this.modal.style.display = 'none';
 
         this.modal.innerHTML = `
-      <div class="modal-content glass-card" style="max-width: 400px; padding: var(--space-xl);">
+      <div class="modal glass-panel" style="max-width: 420px; width: 100%; padding: var(--space-xl);">
         <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Sign In / Sign Up</h2>
         <p style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-xl);">
           To create projects or edit places, you need to sign in. Reading public history is always free.
@@ -43,6 +43,9 @@ export default class AuthModal {
     `;
 
         document.body.appendChild(this.modal);
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) this.close();
+        });
 
         const emailInput = this.modal.querySelector('#auth-email');
         const pwdInput = this.modal.querySelector('#auth-password');
