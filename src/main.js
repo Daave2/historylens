@@ -245,11 +245,30 @@ function installMobileModalViewportFixes() {
   });
 }
 
+function setProjectShellVisible(visible) {
+  const mapContainer = document.getElementById('map-container');
+  const sidebar = document.getElementById('sidebar');
+  const timeSlider = document.getElementById('time-slider-container');
+
+  if (mapContainer) mapContainer.style.display = visible ? 'block' : 'none';
+  if (sidebar) sidebar.style.display = visible ? 'flex' : 'none';
+  if (!visible && timeSlider) timeSlider.style.display = 'none';
+}
+
 // ── Init ───────────────────────────────────────────────────
 async function init() {
   registerServiceWorker();
   setupInstallPromptUi();
   installMobileModalViewportFixes();
+  const urlParams = new URLSearchParams(window.location.search);
+  const projectIdParam = urlParams.get('project');
+
+  // On the home route we should never flash the raw project shell while auth/session bootstraps.
+  if (!projectIdParam) {
+    setProjectShellVisible(false);
+  } else {
+    setProjectShellVisible(true);
+  }
   const authModal = new AuthModal();
   guideModal = new GuideModal();
   let maybeAutoOpenDashboardGuide = () => { };
@@ -342,9 +361,6 @@ async function init() {
   }
 
   // Routing Logic
-  const urlParams = new URLSearchParams(window.location.search);
-  const projectIdParam = urlParams.get('project');
-
   if (projectIdParam) {
     try {
       currentProject = await getProject(projectIdParam);
