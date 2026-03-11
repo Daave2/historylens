@@ -1,4 +1,4 @@
-const CACHE_NAME = 'historylens-static-v1';
+const CACHE_NAME = 'historylens-static-v2';
 const BASE_PATH = (() => {
   const path = new URL(self.registration.scope).pathname;
   return path.endsWith('/') ? path : `${path}/`;
@@ -11,8 +11,6 @@ function withBase(path) {
 }
 
 const APP_SHELL = [
-  withBase(''),
-  withBase('index.html'),
   withBase('manifest.json'),
   withBase('favicon.svg')
 ];
@@ -40,10 +38,11 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.endsWith('/sw.js')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match(withBase('index.html')))
+      fetch(request).catch(() => caches.match(withBase('index.html')) || caches.match(withBase('')))
     );
     return;
   }
@@ -65,4 +64,3 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
-
