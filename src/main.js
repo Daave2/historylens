@@ -89,26 +89,15 @@ function getBasePath() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  if (import.meta.env.DEV) {
-    navigator.serviceWorker.getRegistrations()
-      .then((registrations) => {
-        registrations.forEach((registration) => registration.unregister());
-      })
-      .catch((err) => {
-        console.warn('Could not clear dev service worker registrations:', err);
-      });
-    return;
-  }
-
-  const basePath = getBasePath();
-  const swUrl = `${basePath}sw.js`;
-  window.addEventListener('load', async () => {
-    try {
-      await navigator.serviceWorker.register(swUrl, { scope: basePath });
-    } catch (err) {
-      console.warn('Service worker registration failed:', err);
-    }
-  });
+  // Temporary safety mode: clear any existing worker to avoid stale shell/cache lockups.
+  // Once startup is fully stable in production we can re-enable registration.
+  navigator.serviceWorker.getRegistrations()
+    .then((registrations) => {
+      registrations.forEach((registration) => registration.unregister());
+    })
+    .catch((err) => {
+      console.warn('Could not clear service worker registrations:', err);
+    });
 }
 
 function isStandaloneMode() {
@@ -219,10 +208,6 @@ function setupInstallPromptUi() {
     updateButtons();
   });
 
-  // Only watch direct body child additions (landing/dashboard roots), not full subtree.
-  // A subtree observer can fire continuously from map DOM churn and freeze the page.
-  const observer = new MutationObserver(() => updateButtons());
-  observer.observe(document.body, { childList: true });
   updateButtons();
 }
 
