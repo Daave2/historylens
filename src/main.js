@@ -167,8 +167,13 @@ function setupInstallPromptUi() {
         button.addEventListener('click', onInstallClick);
         wiredButtons.add(button);
       }
-      button.style.display = showButtons ? 'inline-flex' : 'none';
-      button.textContent = buttonLabel;
+      const nextDisplay = showButtons ? 'inline-flex' : 'none';
+      if (button.style.display !== nextDisplay) {
+        button.style.display = nextDisplay;
+      }
+      if (button.textContent !== buttonLabel) {
+        button.textContent = buttonLabel;
+      }
     });
   };
 
@@ -214,8 +219,10 @@ function setupInstallPromptUi() {
     updateButtons();
   });
 
+  // Only watch direct body child additions (landing/dashboard roots), not full subtree.
+  // A subtree observer can fire continuously from map DOM churn and freeze the page.
   const observer = new MutationObserver(() => updateButtons());
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true });
   updateButtons();
 }
 
@@ -268,7 +275,6 @@ function setProjectShellVisible(visible) {
 // ── Init ───────────────────────────────────────────────────
 async function init() {
   registerServiceWorker();
-  setupInstallPromptUi();
   installMobileModalViewportFixes();
   const urlParams = new URLSearchParams(window.location.search);
   const projectIdParam = urlParams.get('project');
@@ -485,6 +491,11 @@ async function init() {
         console.error('Could not restore auth session on home route:', err);
       });
   }
+
+  // Defer install UI wiring until initial route view is visible.
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => setupInstallPromptUi(), 0);
+  });
 }
 
 function getRolePermissions(role) {
