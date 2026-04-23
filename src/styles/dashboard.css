@@ -55,6 +55,14 @@
     margin-bottom: var(--space-3xl);
 }
 
+.dashboard-kicker {
+    color: var(--accent-light);
+    font-size: var(--text-sm);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-sm);
+}
+
 .dashboard-hero h2 {
     font-family: var(--font-heading);
     font-size: var(--text-3xl);
@@ -73,6 +81,43 @@
     margin-top: var(--space-lg);
     display: flex;
     justify-content: center;
+}
+
+.dashboard-steps {
+    margin-top: var(--space-xl);
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.dashboard-step {
+    min-width: 170px;
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    border: 1px solid var(--bg-hover);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    justify-content: center;
+}
+
+.dashboard-step strong {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(230, 160, 78, 0.12);
+    color: var(--accent-light);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-sm);
+}
+
+.dashboard-step span {
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
 }
 
 .dashboard-tabs {
@@ -239,6 +284,13 @@
     transform: scale(1.1);
 }
 
+.create-card p {
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    margin: 0;
+}
+
 .empty-state {
     grid-column: 1 / -1;
     text-align: center;
@@ -282,6 +334,10 @@
         justify-content: flex-start;
     }
 
+    .dashboard-steps {
+        justify-content: flex-start;
+    }
+
     .dashboard-tabs {
         justify-content: flex-start;
         overflow-x: auto;
@@ -321,6 +377,15 @@
     .dashboard-hero {
         text-align: left;
         margin-bottom: var(--space-xl);
+    }
+
+    .dashboard-steps {
+        flex-direction: column;
+    }
+
+    .dashboard-step {
+        width: 100%;
+        justify-content: flex-start;
     }
 
     .dashboard-tabs {

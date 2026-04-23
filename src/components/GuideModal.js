@@ -47,9 +47,9 @@ export default class GuideModal {
         });
     }
 
-    showDashboard({ isSignedIn = false, autoGuideEnabled = true } = {}) {
+    showDashboard({ isSignedIn = false } = {}) {
         this.mode = 'dashboard';
-        this.state = { isSignedIn, autoGuideEnabled };
+        this.state = { isSignedIn };
         this.render();
         this.show();
     }
@@ -95,7 +95,7 @@ export default class GuideModal {
     }
 
     getDashboardContent() {
-        const { isSignedIn, autoGuideEnabled = true } = this.state;
+        const { isSignedIn } = this.state;
         const steps = [
             {
                 title: 'Open a project',
@@ -121,12 +121,6 @@ export default class GuideModal {
         if (!isSignedIn) {
             actions.push({ id: 'dash-signin', label: 'Sign In', variant: 'ghost' });
         }
-        actions.push({
-            id: 'dash-toggle-auto',
-            label: autoGuideEnabled ? 'Auto Guide: On' : 'Auto Guide: Off',
-            variant: 'ghost'
-        });
-        actions.push({ id: 'dash-reset', label: 'Reset Onboarding', variant: 'ghost' });
 
         return {
             kicker: 'Quick Start',
@@ -134,7 +128,7 @@ export default class GuideModal {
             description: 'Three simple steps.',
             steps,
             actions,
-            note: `${autoGuideEnabled ? 'Auto guide is enabled.' : 'Auto guide is disabled.'} You can open this anytime from the Guide button.`
+            note: 'Open this guide anytime from the help button.'
         };
     }
 
@@ -202,13 +196,6 @@ export default class GuideModal {
                 this.handlers.onAuthRequest?.();
                 this.hide();
                 break;
-            case 'dash-toggle-auto': {
-                const nextValue = !this.state.autoGuideEnabled;
-                this.state.autoGuideEnabled = nextValue;
-                this.handlers.onToggleAutoGuide?.(nextValue);
-                this.render();
-                break;
-            }
             case 'dash-reset':
                 this.handlers.onResetGuide?.();
                 this.render();

@@ -3,7 +3,6 @@ import {
   getImagesForEntry,
   deleteTimeEntry,
   deletePlace,
-  createTimeEntry,
   getProfiles,
   getComments,
   addComment,
@@ -18,8 +17,7 @@ import {
   setPlacePinnedImage,
   getPlaceLocationHistory
 } from '../data/store.js';
-import { hasAiAccess, generateSpeculativeContext } from '../ai/ai.js';
-import { safeUrl } from '../utils/sanitize.js';
+import { escapeAttr, escapeHtml, safeUrl } from '../utils/sanitize.js';
 
 export default class PlaceDetail {
   constructor({ onAddEntry, onEditEntry, onDeletePlace, onRegenerateOverview, onSuggestMove, onSuggestAlias, onPickLocationFromMap, onClose }) {
@@ -80,19 +78,17 @@ export default class PlaceDetail {
     }[place.category] || '#a78bfa';
 
     const catLabel = place.category.charAt(0).toUpperCase() + place.category.slice(1);
-    const overviewText = (place.description || '').trim();
+    const overviewText = cleanOverviewText(place.description);
     const canManageOverview = !isReadOnly && (
       currentUserRole === 'owner' ||
       currentUserRole === 'admin' ||
       (currentUserRole === 'editor' && currentUser && place.createdBy === currentUser.id)
     );
-    const historyHtml = overviewHistory.length === 0
-      ? `<div style="font-size: var(--text-xs); color: var(--text-muted);">No overview revisions yet.</div>`
-      : overviewHistory.map(rev => {
+    const historyHtml = overviewHistory.map(rev => {
         const profile = profiles[rev.createdBy];
         const author = profile?.display_name || (profile?.email ? profile.email.split('@')[0] : 'Unknown');
         const reasonLabel = {
-          regenerate: 'Updated from timeline',
+          regenerate: 'Built from timeline',
           restore: 'Restored previous version',
           manual_edit: 'Manual edit'
         }[rev.reason] || rev.reason || 'Updated';
@@ -107,23 +103,26 @@ export default class PlaceDetail {
           </div>
         `;
       }).join('');
+    const versionHistoryHtml = canManageOverview && overviewHistory.length > 0 ? `
+      <details style="margin-top: var(--space-lg); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
+        <summary style="cursor:pointer; color: var(--text-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;">Previous Versions (${overviewHistory.length})</summary>
+        <div style="display:flex; flex-direction:column; gap: var(--space-xs); margin-top: var(--space-md);">${historyHtml}</div>
+      </details>
+    ` : '';
 
     const overviewHtml = `
       <div class="place-overview-panel" style="line-height: 1.7; color: var(--text-secondary);">
         ${overviewText
           ? `<div id="place-overview-text" style="white-space: pre-wrap;">${escapeHtml(overviewText)}</div>`
-          : `<div id="place-overview-empty" style="color: var(--text-muted);">No overview yet. Add timeline entries to auto-generate one.</div>`
+          : `<div id="place-overview-empty" style="color: var(--text-muted);">${entries.length > 0 ? 'No summary yet. Write one yourself or build one from the timeline.' : 'No summary yet. Add the first timeline entry to start building this place.'}</div>`
         }
         ${canManageOverview ? `
           <div style="margin-top: var(--space-md); display: flex; gap: var(--space-sm); flex-wrap: wrap;">
-            <button class="btn btn-ghost" id="detail-edit-overview">Edit overview</button>
-            <button class="btn btn-ghost" id="detail-refresh-overview">Update from timeline</button>
+            <button class="btn btn-ghost" id="detail-edit-overview">Edit Summary</button>
+            <button class="btn btn-ghost" id="detail-refresh-overview">Build From Timeline</button>
           </div>
         ` : ''}
-        <div style="margin-top: var(--space-lg); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
-          <div style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-sm); text-transform: uppercase; letter-spacing: 0.08em;">Overview History</div>
-          <div style="display:flex; flex-direction:column; gap: var(--space-xs);">${historyHtml}</div>
-        </div>
+        ${versionHistoryHtml}
       </div>
     `;
 
@@ -131,16 +130,9 @@ export default class PlaceDetail {
     if (entriesWithImages.length === 0) {
       timelineHtml = `
         <div class="empty-state">
-          <h4>No historical entries yet</h4>
+          <h4>No timeline entries yet</h4>
           <p style="margin-bottom: var(--space-md);">${canSuggestOnly ? 'Submit the first historical suggestion for moderator approval.' : 'Add the first piece of history for this place — a photo, a story, or a reference.'}</p>
-          ${(hasAiAccess() && !isReadOnly) ? `
-            <button class="btn btn-ghost" id="detail-ai-context">
-              ✨ AI: What was here before?
-            </button>
-            <div id="ai-loading" style="display:none; font-size:var(--text-xs); color:var(--text-secondary); margin-top:var(--space-sm);">
-              Consulting historical context...
-            </div>
-          ` : ''}
+          ${canAddEntry ? `<button class="btn btn-primary" id="timeline-empty-add">${canSuggestOnly ? 'Suggest First Entry' : 'Add First Entry'}</button>` : ''}
         </div>
       `;
     } else {
@@ -356,7 +348,7 @@ export default class PlaceDetail {
       ` : ''}
 
       <div class="detail-tabs" style="display: flex; gap: var(--space-md); border-bottom: 1px solid var(--glass-border); margin: var(--space-lg) 0;">
-        <button class="tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" data-tab="overview" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'overview' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'overview' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'overview' ? 'var(--accent)' : 'transparent'};">Overview</button>
+        <button class="tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" data-tab="overview" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'overview' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'overview' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'overview' ? 'var(--accent)' : 'transparent'};">Summary</button>
         <button class="tab-btn ${this.activeTab === 'timeline' ? 'active' : ''}" data-tab="timeline" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'timeline' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'timeline' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'timeline' ? 'var(--accent)' : 'transparent'};">Timeline</button>
         <button class="tab-btn ${this.activeTab === 'discussion' ? 'active' : ''}" data-tab="discussion" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'discussion' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'discussion' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'discussion' ? 'var(--accent)' : 'transparent'};">Discussion <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
       </div>
@@ -399,13 +391,14 @@ export default class PlaceDetail {
     if (editOverviewBtn) {
       editOverviewBtn.addEventListener('click', () => {
         const currentText = (place.description || '').trim();
+        const currentCleanText = cleanOverviewText(currentText);
         const panel = this.content.querySelector('#tab-overview');
         if (!panel) return;
 
         panel.innerHTML = `
           <div class="form-group">
             <label class="form-label">Overview</label>
-            <textarea id="detail-overview-input" class="form-textarea" style="min-height: 180px;">${escapeHtml(currentText)}</textarea>
+            <textarea id="detail-overview-input" class="form-textarea" style="min-height: 180px;">${escapeHtml(currentCleanText)}</textarea>
           </div>
           <div style="display:flex; gap: var(--space-sm); justify-content:flex-end;">
             <button class="btn btn-ghost" id="detail-overview-cancel">Cancel</button>
@@ -455,28 +448,28 @@ export default class PlaceDetail {
     if (refreshOverviewBtn) {
       refreshOverviewBtn.addEventListener('click', async () => {
         const confirmed = await this.confirmAction(
-          'Regenerate overview from timeline? This may overwrite manual edits. You can undo once after updating.',
-          'Update Overview'
+          'Build the summary from timeline entries? This will replace the current text, but you can restore a previous version.',
+          'Build Summary'
         );
         if (!confirmed) return;
 
         try {
           refreshOverviewBtn.disabled = true;
-          refreshOverviewBtn.textContent = 'Updating...';
+          refreshOverviewBtn.textContent = 'Building...';
           const result = await this.onRegenerateOverview?.(place.id);
           if (result?.updated) {
             await this.show(result.place || place, isReadOnly, currentUser, currentUserRole, canSuggest);
             this.content.querySelector('.tab-btn[data-tab="overview"]')?.click();
-            await this.showNotice('Overview updated from timeline entries.', 'Overview Updated');
+            await this.showNotice('Summary updated from timeline entries.', 'Summary Updated');
           } else {
-            await this.showNotice('Overview is already up to date.', 'No Changes');
+            await this.showNotice('Summary is already up to date.', 'No Changes');
           }
         } catch (err) {
           console.error(err);
-          await this.showNotice('Failed to update overview.', 'Update Failed');
+          await this.showNotice('Failed to build the summary.', 'Build Failed');
         } finally {
           refreshOverviewBtn.disabled = false;
-          refreshOverviewBtn.textContent = 'Update from timeline';
+          refreshOverviewBtn.textContent = 'Build From Timeline';
         }
       });
     }
@@ -504,6 +497,9 @@ export default class PlaceDetail {
     // Wire event listeners
     if (canAddEntry) {
       this.content.querySelector('#detail-add-entry')?.addEventListener('click', () => {
+        this.onAddEntry?.(place);
+      });
+      this.content.querySelector('#timeline-empty-add')?.addEventListener('click', () => {
         this.onAddEntry?.(place);
       });
 
@@ -567,47 +563,6 @@ export default class PlaceDetail {
             commentBtn.disabled = false;
             commentBtn.textContent = 'Post Comment';
           }
-        }
-      });
-    }
-
-    // AI Speculative Context
-    const aiBtn = this.content.querySelector('#detail-ai-context');
-    if (aiBtn) {
-      aiBtn.addEventListener('click', async () => {
-        aiBtn.style.display = 'none';
-        this.content.querySelector('#ai-loading').style.display = 'block';
-
-        try {
-          // Generate context using first known year if available, otherwise just use town history
-          const firstEntry = entries.length > 0 ? [...entries].sort((a, b) => a.yearStart - b.yearStart)[0] : null;
-          const firstYear = firstEntry ? firstEntry.yearStart : 1850; // default assumption for Blackpool growth
-
-          const areaContext = "Blackpool was historically coastal sand dunes and marshland until the mid-19th century when the railway arrived and Victorian tourism boomed, transforming the coastline into a dense resort town.";
-
-          const note = await generateSpeculativeContext(place.name, firstYear, areaContext);
-
-          // Save as a new entry
-          await createTimeEntry({
-            placeId: place.id,
-            yearStart: note.yearStart || 1800,
-            yearEnd: note.yearEnd,
-            title: note.title,
-            summary: note.summary,
-            source: note.source,
-            sourceType: note.sourceType,
-            confidence: note.confidence,
-            images: []
-          });
-
-          // Refresh view and regenerate overview
-          this.activeTab = 'overview';
-          const refreshedPlace = await getPlace(place.id);
-          this.show(refreshedPlace || place, isReadOnly, currentUser, currentUserRole, canSuggest);
-        } catch (err) {
-          console.error(err);
-          aiBtn.style.display = 'block';
-          this.content.querySelector('#ai-loading').textContent = '❌ Failed to generate context.';
         }
       });
     }
@@ -920,15 +875,9 @@ export default class PlaceDetail {
   }
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value);
+function cleanOverviewText(value) {
+  return String(value || '')
+    .replace(/\s*This overview is auto-generated from timeline entries and can be edited manually\.?\s*/gi, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

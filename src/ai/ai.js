@@ -178,6 +178,10 @@ export async function generatePlaceOverview(place, entries = []) {
         return place?.description?.trim() || '';
     }
 
+    if (!hasAiAccess()) {
+        return buildFallbackOverview(place, sorted);
+    }
+
     const timelineText = sorted.map((entry, idx) => {
         const span = entry.yearEnd ? `${entry.yearStart}-${entry.yearEnd}` : `${entry.yearStart}-present`;
         const title = entry.title || `Entry ${idx + 1}`;
@@ -227,20 +231,49 @@ Return an updated overview text.`;
 function buildFallbackOverview(place, sortedEntries) {
     if (!sortedEntries || sortedEntries.length === 0) return place?.description || '';
 
+    const placeName = place?.name || 'This place';
+    const placeType = place?.category ? place.category.replace(/_/g, ' ') : 'place';
     const first = sortedEntries[0];
     const latest = sortedEntries[sortedEntries.length - 1];
-    const lines = [];
-    lines.push(`${place?.name || 'This place'} has ${sortedEntries.length} recorded timeline entr${sortedEntries.length === 1 ? 'y' : 'ies'}.`);
+    const count = sortedEntries.length;
+    const intro = `${placeName} is documented as a ${placeType} with ${count} recorded timeline entr${count === 1 ? 'y' : 'ies'}.`;
 
-    const firstTitle = first.title || 'an early recorded phase';
-    lines.push(`The earliest known record is ${first.yearStart}: ${firstTitle}.`);
+    const firstSummary = summariseEntry(first);
+    const firstSentence = `${intro} The earliest entry is ${formatEntryRange(first)}: ${first.title || 'an early recorded phase'}.`;
 
-    if (latest && latest !== first) {
-        const latestRange = latest.yearEnd ? `${latest.yearStart}-${latest.yearEnd}` : `${latest.yearStart}-present`;
-        const latestTitle = latest.title || 'its latest documented phase';
-        lines.push(`The latest documented period is ${latestRange}: ${latestTitle}.`);
+    if (latest === first) {
+        return [firstSentence, firstSummary].filter(Boolean).join(' ');
     }
 
-    lines.push('This overview is auto-generated from timeline entries and can be edited manually.');
-    return lines.join(' ');
+    const middleTitles = sortedEntries
+        .slice(1, -1)
+        .map((entry) => entry.title)
+        .filter(Boolean)
+        .slice(0, 2);
+    const middleSentence = middleTitles.length > 0
+        ? `Other documented periods include ${middleTitles.join(' and ')}.`
+        : '';
+
+    const latestSummary = summariseEntry(latest);
+    const latestSentence = `The most recent documented period is ${formatEntryRange(latest)}: ${latest.title || 'the latest recorded phase'}.`;
+
+    return [firstSentence, firstSummary, middleSentence, latestSentence, latestSummary]
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+function formatEntryRange(entry) {
+    if (!entry?.yearStart && !entry?.yearEnd) return 'an undated period';
+    if (entry?.yearStart && entry?.yearEnd) return `${entry.yearStart}-${entry.yearEnd}`;
+    if (entry?.yearStart) return `${entry.yearStart}-present`;
+    return `until ${entry.yearEnd}`;
+}
+
+function summariseEntry(entry) {
+    const plain = String(entry?.summary || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!plain) return '';
+    return plain.length > 220 ? `${plain.slice(0, 217).trim()}...` : plain;
 }

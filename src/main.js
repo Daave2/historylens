@@ -54,33 +54,8 @@ let selectedYear = new Date().getFullYear();
 let currentVisiblePlaceIds = null; // null means all are visible
 let guideModal = null;
 const GUIDE_STORAGE = {
-  seen: 'historylens.quick-guide.shown.v1',
-  auto: 'historylens.quick-guide.auto.v1'
+  seen: 'historylens.quick-guide.shown.v1'
 };
-
-function isAutoGuideEnabled() {
-  try {
-    return localStorage.getItem(GUIDE_STORAGE.auto) !== '0';
-  } catch {
-    return true;
-  }
-}
-
-function setAutoGuideEnabled(enabled) {
-  try {
-    localStorage.setItem(GUIDE_STORAGE.auto, enabled ? '1' : '0');
-  } catch {
-    // Ignore storage write issues.
-  }
-}
-
-function resetGuideSeenState() {
-  try {
-    localStorage.removeItem(GUIDE_STORAGE.seen);
-  } catch {
-    // Ignore storage write issues.
-  }
-}
 
 function getBasePath() {
   const base = import.meta.env.BASE_URL || '/';
@@ -272,8 +247,6 @@ async function init() {
   }
   const authModal = new AuthModal();
   guideModal = new GuideModal();
-  let maybeAutoOpenDashboardGuide = () => { };
-  let hasAutoGuideShown = false;
 
   const profileModal = new ProfileModal({
     onSave: async (updates) => {
@@ -348,7 +321,6 @@ async function init() {
         // If signed in, always go to dashboard (hide landing)
         if (window.landingComponent) window.landingComponent.hide();
         window.dashboardComponent.show(user);
-        maybeAutoOpenDashboardGuide();
       } else {
         // If signed out, only update dashboard if they are already looking at it.
         // If the landing page is visible, keep it visibile.
@@ -386,7 +358,6 @@ async function init() {
           if (window.landingComponent && !currentProject) {
             window.landingComponent.hide();
             window.dashboardComponent.show(user);
-            maybeAutoOpenDashboardGuide();
           }
         }
       });
@@ -399,37 +370,10 @@ async function init() {
       },
       onAuthRequest: requestAuthFromHome,
       onGuideRequest: () => {
-        guideModal.showDashboard({
-          isSignedIn: !!currentUser,
-          autoGuideEnabled: isAutoGuideEnabled()
-        });
+        guideModal.showDashboard({ isSignedIn: !!currentUser });
       }
     });
     window.dashboardComponent = dashboard;
-
-    maybeAutoOpenDashboardGuide = () => {
-      if (hasAutoGuideShown) return;
-      if (!isAutoGuideEnabled()) return;
-      try {
-        if (localStorage.getItem(GUIDE_STORAGE.seen)) {
-          hasAutoGuideShown = true;
-          return;
-        }
-        localStorage.setItem(GUIDE_STORAGE.seen, '1');
-      } catch {
-        // Ignore localStorage access issues.
-      }
-      hasAutoGuideShown = true;
-
-      setTimeout(() => {
-        if (!currentProject && dashboard.container?.style.display !== 'none') {
-          guideModal.showDashboard({
-            isSignedIn: !!currentUser,
-            autoGuideEnabled: isAutoGuideEnabled()
-          });
-        }
-      }, 300);
-    };
 
     guideModal.setHandlers({
       onSwitchDashboardTab: (tab) => {
@@ -438,14 +382,13 @@ async function init() {
         spotlightElement(targetBtn);
       },
       onAuthRequest: requestAuthFromHome,
-      onToggleAutoGuide: (enabled) => {
-        setAutoGuideEnabled(enabled);
-        showToast(enabled ? 'Auto guide turned on' : 'Auto guide turned off', 'info');
-      },
       onResetGuide: () => {
-        resetGuideSeenState();
-        hasAutoGuideShown = false;
-        showToast('Onboarding reset. It will auto-open on next dashboard visit.', 'success');
+        try {
+          localStorage.removeItem(GUIDE_STORAGE.seen);
+        } catch {
+          // Ignore localStorage access issues.
+        }
+        showToast('Guide progress reset.', 'success');
       }
     });
 
@@ -454,7 +397,6 @@ async function init() {
       onExplore: () => {
         landing.hide();
         dashboard.show(currentUser);
-        maybeAutoOpenDashboardGuide();
       },
       onAuthRequest: requestAuthFromHome
     });
@@ -462,7 +404,6 @@ async function init() {
 
     if (currentUser) {
       dashboard.show(currentUser);
-      maybeAutoOpenDashboardGuide();
     } else {
       landing.show();
     }

@@ -1,4 +1,4 @@
-import { getAllProjects, createProject, getSession } from '../data/store.js';
+import { getAllProjects, createProject } from '../data/store.js';
 import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 
 export default class Dashboard {
@@ -29,17 +29,32 @@ export default class Dashboard {
         </header>
 
         <section class="dashboard-hero">
-          <h2>Discover the history around you</h2>
-          <p>Explore community research or start mapping your own local history project.</p>
+          <p class="dashboard-kicker">Start Here</p>
+          <h2>Pick a map and start exploring.</h2>
+          <p>Open a public map to browse existing research, or create your own map when you are ready to add places, dates, and notes.</p>
           <div class="dashboard-hero-actions">
-            <button class="btn btn-primary" id="dashboard-guide-btn">Quick Start Guide</button>
+            <button class="btn btn-primary" id="dashboard-guide-btn">How It Works</button>
+          </div>
+          <div class="dashboard-steps" aria-label="Simple workflow">
+            <div class="dashboard-step">
+              <strong>1</strong>
+              <span>Open a map</span>
+            </div>
+            <div class="dashboard-step">
+              <strong>2</strong>
+              <span>Click a place</span>
+            </div>
+            <div class="dashboard-step">
+              <strong>3</strong>
+              <span>Add history when ready</span>
+            </div>
           </div>
           <p id="dashboard-feedback" style="display:none; margin-top: var(--space-md); font-size: var(--text-sm);" aria-live="polite"></p>
         </section>
 
         <div class="dashboard-tabs">
-          <button class="tab-btn active" data-tab="public">Public Projects</button>
-          <button class="tab-btn" data-tab="mine">My Projects</button>
+          <button class="tab-btn active" data-tab="public">Explore Maps</button>
+          <button class="tab-btn" data-tab="mine">My Maps</button>
         </div>
 
         <div class="project-grid" id="dashboard-grid">
@@ -87,14 +102,9 @@ export default class Dashboard {
         }
 
         try {
-            // Just pass empty to let database define everything. 
-            // Note: store.js creates default 'Untitled Project' values.
             const project = await createProject({
-                name: 'New History Project',
-                description: 'Click to edit description'
-                // We could pass ownerId here but Supabase auth context does it via RLS if set, 
-                // Wait, we need to pass ownerId if we update store.js...
-                // Actually, we'll let store.js pass it in.
+                name: 'My History Map',
+                description: 'Add a short summary for this map.'
             });
             if (this.onSelectProject) this.onSelectProject(project.id);
         } catch (e) {
@@ -168,7 +178,7 @@ export default class Dashboard {
             if (!this.currentUser) {
                 grid.innerHTML = `
                 <div class="empty-state">
-                  <p>Sign in to view and create your own projects.</p>
+                  <p>Sign in to create and manage your own maps.</p>
                   <button class="btn btn-primary" id="dash-signin-btn" style="margin-top:var(--space-md);">Sign In</button>
                 </div>
              `;
@@ -185,9 +195,19 @@ export default class Dashboard {
             grid.innerHTML += `
             <div class="project-card create-card" data-create="true">
               <div class="create-icon">+</div>
-              <h3>Create New Project</h3>
+              <h3>Start a new map</h3>
+              <p>Set up a map for one street, one area, or one local story.</p>
             </div>
           `;
+        }
+
+        if (projectsToShow.length === 0) {
+            grid.innerHTML += `
+            <div class="empty-state">
+              <p>${tab === 'public' ? 'No public maps are available yet.' : 'You have not created any maps yet.'}</p>
+            </div>
+          `;
+            return;
         }
 
         projectsToShow.forEach(p => {
@@ -198,7 +218,7 @@ export default class Dashboard {
                 <h3>${escapeHtml(p.name || 'Untitled')}</h3>
                 ${p.isPublic === false ? '<span class="badge privacy-badge">Private</span>' : ''}
               </div>
-              <p class="project-card-desc">${escapeHtml(p.description || 'No description provided.')}</p>
+              <p class="project-card-desc">${escapeHtml(p.description || 'No summary yet.')}</p>
               <div class="project-card-footer">
                 <span class="date">Updated ${escapeHtml(date)}</span>
                 <span class="link-arrow">→</span>

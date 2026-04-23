@@ -31,43 +31,50 @@ export default class LandingPage {
             <section class="hero-section">
                 <div class="hero-bg"></div>
                 <div class="hero-content">
-                    <h2>Map the stories<br/>of your streets.</h2>
-                    <p>HistoryLens is a collaborative, open-source platform for researching and documenting local history on an interactive timeline map.</p>
+                    <p class="hero-eyebrow">Local history, one place at a time</p>
+                    <h2>A simpler way to map the past.</h2>
+                    <p>Browse a map, open a place, and add what you know with notes, dates, photos, and sources. HistoryLens keeps the workflow grounded and easy to follow.</p>
                     <div class="hero-actions">
-                        <button class="btn btn-primary" id="hero-explore-btn">Explore Projects</button>
-                        <button class="btn btn-secondary" id="hero-create-btn">Create Your Own</button>
+                        <button class="btn btn-primary" id="hero-explore-btn">Browse Maps</button>
+                        <button class="btn btn-secondary" id="hero-create-btn">Start A Project</button>
+                    </div>
+                    <div class="hero-points" aria-label="Key benefits">
+                        <span>Write your own notes</span>
+                        <span>Add photos and sources</span>
+                        <span>Export your work</span>
                     </div>
                 </div>
             </section>
 
             <section class="features-section">
+                <div class="section-intro">
+                    <p class="section-kicker">How It Works</p>
+                    <h3>Three steps, not a giant workflow.</h3>
+                </div>
                 <div class="features-grid">
                     <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                        </div>
-                        <h3>Interactive Mapping</h3>
-                        <p>Pinpoint historical locations and overlay a timeline of events, photos, and context for an evolving geographic narrative.</p>
+                        <div class="feature-step">01</div>
+                        <h3>Open a map</h3>
+                        <p>Start with a public project or create your own map for a street, neighbourhood, or theme.</p>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                        </div>
-                        <h3>Community Driven</h3>
-                        <p>Invite trusted collaborators to help digitise local archives, cross-reference census data, and verify stories.</p>
+                        <div class="feature-step">02</div>
+                        <h3>Click a place</h3>
+                        <p>See the summary, timeline, and discussion for each location without digging through a complex interface.</p>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"/><polyline points="14 2 14 8 20 8"/><path d="M3 15h6"/><path d="M3 18h6"/></svg>
-                        </div>
-                        <h3>Own Your Data</h3>
-                        <p>Your history shouldn't be locked away. Export entire projects as GeoJSON to keep your research preserved forever.</p>
+                        <div class="feature-step">03</div>
+                        <h3>Add what you know</h3>
+                        <p>Write an entry, attach photos or documents, and keep the record grounded in dates and sources.</p>
                     </div>
+                </div>
+                <div class="landing-note">
+                    <p>Built for local researchers, community groups, and anyone collecting place-based history.</p>
                 </div>
             </section>
             
             <footer class="landing-footer">
-                <p>&copy; ${new Date().getFullYear()} HistoryLens — An open-source research tool.</p>
+                <p>&copy; ${new Date().getFullYear()} HistoryLens — A place-based history map.</p>
             </footer>
         `;
 

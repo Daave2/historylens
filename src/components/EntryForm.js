@@ -1,5 +1,3 @@
-import { buildSummaryPrompt } from '../ai/aiHelper.js';
-import { hasAiAccess, autoSummariseResearch, analyzeImage } from '../ai/ai.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
 
 export default class EntryForm {
@@ -38,23 +36,24 @@ export default class EntryForm {
       </p>
 
       <div class="form-group">
-        <label class="form-label">What do you want to add?</label>
-        <textarea class="form-textarea" id="ef-summary" placeholder="Example: This building used to be a family-run guest house in the 1970s..." style="min-height:130px;">${escapeHtml(e.summary || '')}</textarea>
+        <label class="form-label">What happened here?</label>
+        <p class="form-hint" style="margin-bottom: var(--space-sm);">Start with a short note. You can add dates, sources, and photos below.</p>
+        <textarea class="form-textarea" id="ef-summary" placeholder="Example: The building reopened as a boarding house in the early 1970s and stayed in family ownership for two decades." style="min-height:130px;">${escapeHtml(e.summary || '')}</textarea>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Approx year (optional)</label>
+          <label class="form-label">Approx year</label>
           <input class="form-input" id="ef-year-start" type="number" min="1000" max="2030" placeholder="e.g. 1902" value="${e.yearStart || ''}" />
         </div>
         <div class="form-group">
           <label class="form-label">Short title (optional)</label>
-          <input class="form-input" id="ef-title" type="text" placeholder="Auto-generated if blank" value="${escapeAttr(e.title || '')}" />
+          <input class="form-input" id="ef-title" type="text" placeholder="Optional short heading" value="${escapeAttr(e.title || '')}" />
         </div>
       </div>
 
       <button class="btn btn-ghost" id="ef-toggle-images" style="margin-bottom: var(--space-sm);">
-        ${this.pendingImages.length > 0 ? 'Hide photos' : 'Add photos (optional)'}
+        ${this.pendingImages.length > 0 ? 'Hide photos and documents' : 'Add photos or documents'}
       </button>
 
       <div class="form-group" id="ef-images-section" style="display: ${this.pendingImages.length > 0 ? 'block' : 'none'};">
@@ -73,10 +72,11 @@ export default class EntryForm {
       </div>
 
       <button class="btn btn-ghost" id="ef-toggle-advanced" style="margin-bottom: var(--space-sm);">
-        ${isEdit ? 'Hide details' : 'More details (optional)'}
+        ${isEdit ? 'Hide dates, sources, and confidence' : 'Add dates, sources, and confidence'}
       </button>
 
       <div id="ef-advanced-section" style="display: ${isEdit ? 'block' : 'none'};">
+        <p class="form-hint" style="margin-bottom: var(--space-md);">Use this section when you want to pin down date ranges, note where the information came from, or mark uncertainty.</p>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Year End</label>
@@ -109,17 +109,6 @@ export default class EntryForm {
             </select>
           </div>
         </div>
-
-        <hr style="border: none; border-top: 1px solid var(--glass-border); margin: var(--space-xl) 0;" />
-
-        <div class="form-group">
-          <label class="form-label">📋 Paste External Research</label>
-          <textarea class="form-textarea" id="ef-paste" placeholder="Paste text from websites, documents, books, or your own notes here…" style="min-height:100px;"></textarea>
-          <button class="btn btn-ghost" id="ef-ai-summarise" style="margin-top: var(--space-sm);">
-            ✨ AI Summarise → Generate structured entry
-          </button>
-          <div id="ef-ai-output"></div>
-        </div>
       </div>
 
       <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-xl);">
@@ -138,7 +127,7 @@ export default class EntryForm {
       evt.preventDefault();
       const isOpen = advancedSection.style.display !== 'none';
       advancedSection.style.display = isOpen ? 'none' : 'block';
-      advancedToggle.textContent = isOpen ? 'More details (optional)' : 'Hide details';
+      advancedToggle.textContent = isOpen ? 'Add dates, sources, and confidence' : 'Hide dates, sources, and confidence';
     });
 
     const imagesSection = this.content.querySelector('#ef-images-section');
@@ -147,7 +136,7 @@ export default class EntryForm {
       evt.preventDefault();
       const isOpen = imagesSection.style.display !== 'none';
       imagesSection.style.display = isOpen ? 'none' : 'block';
-      imagesToggle.textContent = isOpen ? 'Add photos (optional)' : 'Hide photos';
+      imagesToggle.textContent = isOpen ? 'Add photos or documents' : 'Hide photos and documents';
     });
 
     // Image upload
@@ -164,9 +153,6 @@ export default class EntryForm {
     });
     fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
 
-    // AI summarise
-    this.content.querySelector('#ef-ai-summarise').addEventListener('click', () => this.aiSummarise());
-
     this.modal.style.display = 'flex';
   }
 
@@ -176,49 +162,6 @@ export default class EntryForm {
       const preview = URL.createObjectURL(file);
       this.pendingImages.push({ file, preview });
       this.renderPreviews();
-
-      // Automatically try to extract info from the first image if AI is enabled
-      // and the title or summary forms are currently empty
-      if (hasAiAccess() && (!this.content.querySelector('#ef-title').value || !this.content.querySelector('#ef-year-start').value)) {
-        this.analyzeUploadedImage(file);
-      }
-    }
-  }
-
-  async analyzeUploadedImage(file) {
-    const titleInput = this.content.querySelector('#ef-title');
-    const startInput = this.content.querySelector('#ef-year-start');
-    const summaryInput = this.content.querySelector('#ef-summary');
-    const confidenceInput = this.content.querySelector('#ef-confidence');
-    const sourceInput = this.content.querySelector('#ef-source');
-    const outputEl = this.content.querySelector('#ef-ai-output');
-
-    outputEl.innerHTML = `<div style="color: var(--text-muted); font-size: var(--text-sm); margin-top: var(--space-sm);">✨ AI is analyzing your image to estimate dates and details...</div>`;
-
-    try {
-      // Convert to base64
-      const reader = new FileReader();
-      const base64Promise = new Promise((resolve) => {
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(file);
-      });
-      const base64DataUrl = await base64Promise;
-
-      // Call AI Vision
-      const result = await analyzeImage(base64DataUrl, this.place.name);
-
-      // Only overwrite fields if they are currently empty
-      if (!titleInput.value && result.caption) titleInput.value = result.caption;
-      if (!summaryInput.value && result.summary) summaryInput.value = result.summary;
-      if (!startInput.value && result.yearTaken) startInput.value = result.yearTaken;
-
-      confidenceInput.value = 'speculative';
-      if (!sourceInput.value) sourceInput.value = 'AI Image Analysis';
-
-      outputEl.innerHTML = `<div style="color: var(--success); font-size: var(--text-sm); margin-top: var(--space-sm);">✅ Image analyzed! Form fields populated with AI estimates.</div>`;
-    } catch (err) {
-      console.error("Image analysis failed:", err);
-      outputEl.innerHTML = `<div style="color: var(--danger); font-size: var(--text-sm); margin-top: var(--space-sm);">❌ Image analysis error: ${escapeHtml(err?.message || 'Unknown error')}</div>`;
     }
   }
 
@@ -239,75 +182,6 @@ export default class EntryForm {
         this.renderPreviews();
       });
     });
-  }
-
-  async aiSummarise() {
-    const outputEl = this.content.querySelector('#ef-ai-output');
-    const pastedText = this.content.querySelector('#ef-paste').value.trim();
-    if (!pastedText) {
-      outputEl.innerHTML = `<div style="color: var(--warning); font-size: var(--text-sm); margin-top: var(--space-sm);">Paste some research text first, then click AI Summarise.</div>`;
-      return;
-    }
-
-    const btn = this.content.querySelector('#ef-ai-summarise');
-
-    if (hasAiAccess()) {
-      // Live AI mode
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '✨ Processing with AI...';
-      btn.disabled = true;
-      outputEl.innerHTML = '';
-
-      try {
-        const result = await autoSummariseResearch(pastedText, this.place.name, new Date().getFullYear());
-
-        // Auto-fill fields
-        if (result.title) this.content.querySelector('#ef-title').value = result.title;
-        if (result.summary) this.content.querySelector('#ef-summary').value = result.summary;
-        if (result.yearStart) this.content.querySelector('#ef-year-start').value = result.yearStart;
-        if (result.yearEnd) this.content.querySelector('#ef-year-end').value = result.yearEnd;
-        if (result.confidence) this.content.querySelector('#ef-confidence').value = result.confidence;
-
-        // Set source to indicate AI helped parse it
-        if (!this.content.querySelector('#ef-source').value) {
-          this.content.querySelector('#ef-source').value = 'Imported research';
-        }
-
-        outputEl.innerHTML = `<div style="color: var(--success); font-size: var(--text-sm); margin-top: var(--space-sm);">✅ Form auto-filled by AI. Please review and edit before saving.</div>`;
-
-        // Clear the paste box so it's fresh for next time
-        this.content.querySelector('#ef-paste').value = '';
-      } catch (err) {
-        console.error(err);
-        outputEl.innerHTML = `<div style="color: var(--danger); font-size: var(--text-sm); margin-top: var(--space-sm);">❌ AI Error: ${escapeHtml(err?.message || 'Unknown error')}</div>`;
-      } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-      }
-    } else {
-      // Fallback: Prompt builder mode
-      const prompt = buildSummaryPrompt(pastedText, this.place, []);
-
-      outputEl.innerHTML = `
-              <div class="ai-prompt-box">
-                <h4>✨ Generated AI Prompt</h4>
-                <p style="font-size: var(--text-xs); color: var(--text-secondary); margin-bottom: var(--space-sm);">
-                  Copy this prompt and paste it into ChatGPT, Gemini, or your preferred AI tool. Then paste the result back into the fields above.
-                </p>
-                <pre>${escapeHtml(prompt)}</pre>
-                <button class="btn btn-ghost" id="ef-copy-prompt">📋 Copy Prompt</button>
-              </div>
-            `;
-
-      outputEl.querySelector('#ef-copy-prompt').addEventListener('click', async () => {
-        await navigator.clipboard.writeText(prompt);
-        outputEl.querySelector('#ef-copy-prompt').textContent = '✓ Copied!';
-        setTimeout(() => {
-          const copyBtn = outputEl.querySelector('#ef-copy-prompt');
-          if (copyBtn) copyBtn.textContent = '📋 Copy Prompt';
-        }, 2000);
-      });
-    }
   }
 
   async save() {
