@@ -13,6 +13,7 @@ import {
   createOverviewRevision,
   updatePlaceNameAlias,
   deletePlaceNameAlias,
+  getPlaceNameAliasHistory,
   getPrimaryPlaceImage,
   getImageVoteSummary,
   voteImage,
@@ -54,12 +55,13 @@ export default class PlaceDetail {
     const aliasActionLabel = canSuggestOnly ? 'Suggest Historic Name' : 'Add Historic Name';
     const moveActionLabel = 'Suggest Location Fix';
 
-    const [entries, comments, overviewHistory, primaryImage, locationHistory] = await Promise.all([
+    const [entries, comments, overviewHistory, primaryImage, locationHistory, aliasHistory] = await Promise.all([
       getTimeEntriesForPlace(place.id),
       getComments(place.id),
       getOverviewHistory(place.id, 20),
       getPrimaryPlaceImage(place.id),
-      getPlaceLocationHistory(place.id, 20)
+      getPlaceLocationHistory(place.id, 20),
+      getPlaceNameAliasHistory(place.id, 50)
     ]);
 
     const entriesWithImages = [];
@@ -86,7 +88,8 @@ export default class PlaceDetail {
       ...comments.map(c => c.user_id),
       ...overviewHistory.map(r => r.createdBy),
       ...historicalNames.map(alias => alias.createdBy),
-      ...locationHistory.map(change => change.changed_by)
+      ...locationHistory.map(change => change.changed_by),
+      ...aliasHistory.map(change => change.changedBy)
     ];
     const profiles = await getProfiles(userIds);
 
@@ -116,6 +119,17 @@ export default class PlaceDetail {
       const profile = profiles[userId];
       return profile?.display_name || (profile?.email ? profile.email.split('@')[0] : 'Unknown');
     };
+    const aliasHistoryByAliasId = aliasHistory.reduce((map, change) => {
+      if (!change.aliasId) return map;
+      if (!map.has(change.aliasId)) map.set(change.aliasId, []);
+      map.get(change.aliasId).push(change);
+      return map;
+    }, new Map());
+    const aliasCreateHistoryIds = new Set(
+      aliasHistory
+        .filter(change => change.action === 'create' && change.aliasId)
+        .map(change => change.aliasId)
+    );
 
     const historyHtml = overviewHistory.map(rev => {
       const author = profileLabel(rev.createdBy);
@@ -156,6 +170,7 @@ export default class PlaceDetail {
                 </div>
                 ${alias.note ? `<div class="place-alias-note">${escapeHtml(alias.note)}</div>` : ''}
                 <div class="place-alias-meta">Added ${new Date(alias.createdAt).toLocaleDateString()} by ${escapeHtml(profileLabel(alias.createdBy))}</div>
+                ${renderAliasInlineHistory(aliasHistoryByAliasId.get(alias.id) || [], profileLabel)}
               </div>
             </article>
           `).join('')}
@@ -175,12 +190,21 @@ export default class PlaceDetail {
         createdAt: place.createdAt,
         actorId: place.createdBy
       },
-      ...historicalNames.map(alias => ({
+      ...historicalNames
+        .filter(alias => !aliasCreateHistoryIds.has(alias.id))
+        .map(alias => ({
         id: `alias-${alias.id}`,
         title: 'Historic name recorded',
         detail: alias.note ? `${alias.alias} · ${formatAliasRange(alias)} · ${alias.note}` : `${alias.alias} · ${formatAliasRange(alias)}`,
         createdAt: new Date(alias.createdAt),
         actorId: alias.createdBy
+      })),
+      ...aliasHistory.map(change => ({
+        id: `alias-history-${change.id}`,
+        title: aliasHistoryActionLabel(change.action),
+        detail: formatAliasHistoryDetail(change),
+        createdAt: new Date(change.createdAt),
+        actorId: change.changedBy
       })),
       ...overviewHistory.map(rev => ({
         id: `overview-${rev.id}`,
@@ -1171,11 +1195,15 @@ function cleanOverviewText(value) {
 }
 
 function formatAliasRange(alias, { emptyLabel = 'Years not specified' } = {}) {
-  const hasStart = alias.startYear !== null && alias.startYear !== undefined && alias.startYear !== '';
-  const hasEnd = alias.endYear !== null && alias.endYear !== undefined && alias.endYear !== '';
-  if (hasStart && hasEnd) return `${alias.startYear} to ${alias.endYear}`;
-  if (hasEnd) return `Until ${alias.endYear}`;
-  if (hasStart) return `From ${alias.startYear}`;
+  return formatAliasRangeFromParts(alias.startYear, alias.endYear, emptyLabel);
+}
+
+function formatAliasRangeFromParts(startYear, endYear, emptyLabel = 'Years not specified') {
+  const hasStart = startYear !== null && startYear !== undefined && startYear !== '';
+  const hasEnd = endYear !== null && endYear !== undefined && endYear !== '';
+  if (hasStart && hasEnd) return `${startYear} to ${endYear}`;
+  if (hasEnd) return `Until ${endYear}`;
+  if (hasStart) return `From ${startYear}`;
   return emptyLabel;
 }
 
@@ -1191,4 +1219,61 @@ function truncateHistoryDetail(value, maxLength = 180) {
   const clean = String(value || '').replace(/\s+/g, ' ').trim();
   if (clean.length <= maxLength) return clean;
   return `${clean.slice(0, maxLength).trimEnd()}...`;
+}
+
+function aliasHistoryActionLabel(action) {
+  return {
+    create: 'Historic name added',
+    update: 'Historic name edited',
+    delete: 'Historic name removed'
+  }[action] || 'Historic name changed';
+}
+
+function formatAliasHistoryDetail(change) {
+  const previousName = change.previousAlias || 'Unnamed name';
+  const nextName = change.newAlias || 'Unnamed name';
+  const previousRange = formatAliasRangeFromParts(change.previousStartYear, change.previousEndYear, '');
+  const nextRange = formatAliasRangeFromParts(change.newStartYear, change.newEndYear, '');
+
+  if (change.action === 'create') {
+    return [
+      nextName,
+      nextRange,
+      change.newNote
+    ].filter(Boolean).join(' · ');
+  }
+
+  if (change.action === 'delete') {
+    return [
+      previousName,
+      previousRange,
+      change.previousNote
+    ].filter(Boolean).join(' · ');
+  }
+
+  const previousLabel = [previousName, previousRange].filter(Boolean).join(' ');
+  const nextLabel = [nextName, nextRange].filter(Boolean).join(' ');
+  const noteChanged = (change.previousNote || '') !== (change.newNote || '');
+  const noteLabel = noteChanged ? 'Note changed' : '';
+  return [`${previousLabel || 'Previous name'} -> ${nextLabel || 'Updated name'}`, noteLabel].filter(Boolean).join(' · ');
+}
+
+function renderAliasInlineHistory(changes, profileLabel) {
+  if (!changes.length) return '';
+
+  const ordered = changes.slice().sort((a, b) => b.createdAt - a.createdAt);
+  return `
+    <details class="place-alias-history">
+      <summary>${ordered.length} change${ordered.length === 1 ? '' : 's'}</summary>
+      <div class="place-alias-history-list">
+        ${ordered.slice(0, 6).map(change => `
+          <div class="place-alias-history-row">
+            <span>${escapeHtml(aliasHistoryActionLabel(change.action))}</span>
+            <small>${escapeHtml(new Date(change.createdAt).toLocaleDateString())} by ${escapeHtml(profileLabel(change.changedBy))}</small>
+            <em>${escapeHtml(formatAliasHistoryDetail(change))}</em>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `;
 }

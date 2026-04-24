@@ -42,6 +42,24 @@ const mapAlias = (row) => ({
     createdAt: new Date(row.created_at)
 });
 
+const mapAliasHistory = (row) => ({
+    id: row.id,
+    aliasId: row.alias_id,
+    placeId: row.place_id,
+    projectId: row.project_id,
+    action: row.action,
+    previousAlias: row.previous_alias || '',
+    previousStartYear: row.previous_start_year,
+    previousEndYear: row.previous_end_year,
+    previousNote: row.previous_note || '',
+    newAlias: row.new_alias || '',
+    newStartYear: row.new_start_year,
+    newEndYear: row.new_end_year,
+    newNote: row.new_note || '',
+    changedBy: row.changed_by,
+    createdAt: new Date(row.created_at)
+});
+
 const mapPlace = (row, aliases = []) => ({
     id: row.id,
     projectId: row.project_id,
@@ -729,6 +747,21 @@ export async function deletePlaceNameAlias(aliasId) {
         .eq('id', aliasId);
     if (error) { console.error(error); throw error; }
     return true;
+}
+
+export async function getPlaceNameAliasHistory(placeId, limit = 40) {
+    const { data, error } = await supabase
+        .from('place_name_alias_history')
+        .select('*')
+        .eq('place_id', placeId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        return [];
+    }
+    return (data || []).map(mapAliasHistory);
 }
 
 export async function getPlaceLocationHistory(placeId, limit = 15) {
