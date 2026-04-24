@@ -460,8 +460,8 @@ export default class PlaceDetail {
 
     this.content.innerHTML = `
       <div class="place-detail-header">
-        <div style="display:flex; justify-content:space-between; gap: var(--space-lg); align-items:flex-start; flex-wrap:wrap;">
-          <div style="min-width:260px; flex:1;">
+        <div class="place-detail-topline" style="display:flex; justify-content:space-between; gap: var(--space-lg); align-items:flex-start; flex-wrap:wrap;">
+          <div class="place-detail-title-block" style="min-width:260px; flex:1;">
             <h2>${escapeHtml(place.name)}</h2>
             <span class="place-category-badge" style="background:${catColour}22; color:${catColour}">
               ${escapeHtml(catLabel)}
@@ -484,7 +484,7 @@ export default class PlaceDetail {
             ` : ''}
           </div>
           ${primaryImageUrl ? `
-            <div style="width: 180px; flex-shrink:0;">
+            <div class="place-detail-main-image" style="width: 180px; flex-shrink:0;">
               <img src="${escapeAttr(primaryImageUrl)}" alt="Main image for ${escapeAttr(place.name)}" style="width:100%; height:120px; object-fit:cover; border-radius: var(--radius-sm); border:1px solid var(--glass-border);" />
               <div style="font-size:11px; color:var(--text-muted); margin-top:4px; text-align:right;">
                 ${primaryImage?.isPinned ? 'Pinned main image' : 'Community-ranked main image'}

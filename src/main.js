@@ -1090,10 +1090,6 @@ async function initProjectView(project) {
     expandBtn.id = 'sidebar-expand';
     expandBtn.className = 'icon-btn glass-panel';
     expandBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
-    expandBtn.style.position = 'absolute';
-    expandBtn.style.left = 'var(--space-md)';
-    expandBtn.style.top = 'var(--space-md)';
-    expandBtn.style.zIndex = '900';
     expandBtn.addEventListener('click', () => sidebar.toggle());
     document.getElementById('app').appendChild(expandBtn);
   }

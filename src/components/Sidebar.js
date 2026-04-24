@@ -274,6 +274,7 @@ export default class Sidebar {
         const hasFilters = Boolean(this.searchInput.value.trim() || (this.categoryFilter && this.categoryFilter.value));
 
         if (places.length === 0) {
+            this.listEl.classList.add('is-empty');
             this.listEl.innerHTML = `
         <div class="empty-state">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -289,6 +290,7 @@ export default class Sidebar {
             return;
         }
 
+        this.listEl.classList.remove('is-empty');
         this.listEl.innerHTML = '';
 
         // Prepare HTML for all items first to strictly control DOM order and prevent reflow issues

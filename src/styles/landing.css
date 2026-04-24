@@ -270,6 +270,7 @@
         gap: var(--space-sm);
         align-items: stretch;
         flex-direction: column;
+        background: linear-gradient(180deg, rgba(10, 10, 15, 0.86), rgba(10, 10, 15, 0));
     }
 
     .nav-actions {
@@ -279,8 +280,8 @@
     }
 
     .hero-section {
-        min-height: 92dvh;
-        padding: calc(var(--space-2xl) + env(safe-area-inset-top)) var(--space-sm) var(--space-xl);
+        min-height: 100dvh;
+        padding: calc(7.25rem + env(safe-area-inset-top)) var(--space-md) var(--space-xl);
     }
 
     .hero-actions {

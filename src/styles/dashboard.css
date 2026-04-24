@@ -360,7 +360,7 @@
 
 @media (max-width: 600px) {
     .dashboard-content {
-        padding: calc(var(--space-lg) + env(safe-area-inset-top)) var(--space-sm) calc(var(--space-lg) + env(safe-area-inset-bottom));
+        padding: calc(var(--space-lg) + env(safe-area-inset-top)) var(--space-md) calc(var(--space-lg) + env(safe-area-inset-bottom));
     }
 
     .dashboard-header {
@@ -386,6 +386,7 @@
     .dashboard-step {
         width: 100%;
         justify-content: flex-start;
+        min-width: 0;
     }
 
     .dashboard-tabs {
