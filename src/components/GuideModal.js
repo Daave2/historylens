@@ -99,13 +99,13 @@ export default class GuideModal {
         const steps = [
             {
                 title: 'Open a project',
-                detail: 'Start in Public Projects and click any card.'
+                detail: 'Start in Explore Maps and click any card.'
             },
             {
                 title: isSignedIn ? 'Create your own project' : 'Sign in once',
                 detail: isSignedIn
-                    ? 'Go to My Projects and click Create New Project.'
-                    : 'This unlocks My Projects and collaboration.'
+                    ? 'Go to My Maps and click Start a new map.'
+                    : 'This unlocks My Maps and collaboration.'
             },
             {
                 title: 'Add your first place',
@@ -114,8 +114,8 @@ export default class GuideModal {
         ];
 
         const actions = [
-            { id: 'dash-public', label: 'Public Projects', variant: 'primary' },
-            { id: 'dash-mine', label: 'My Projects', variant: 'ghost' }
+            { id: 'dash-public', label: 'Explore Maps', variant: 'primary' },
+            { id: 'dash-mine', label: 'My Maps', variant: 'ghost' }
         ];
 
         if (!isSignedIn) {

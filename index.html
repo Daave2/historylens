@@ -57,7 +57,7 @@
         <!-- Project header -->
         <div id="project-header">
           <h2 id="project-name" class="editable-title">New Project</h2>
-          <p id="project-desc" class="editable-desc">Click to add a description…</p>
+          <p id="project-desc" class="editable-desc">No project summary yet.</p>
           <div id="collab-actions" style="margin-top: var(--space-md); display: flex; gap: var(--space-sm);">
             <button id="btn-project-settings" class="btn btn-ghost"
               style="display:none; width: 100%; font-size: var(--text-xs); justify-content: center;">
@@ -85,7 +85,7 @@
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
           </svg>
-          <input type="search" id="place-search" name="sidebar-search" placeholder="Search places, dates, events…"
+          <input type="search" id="place-search" name="sidebar-search" placeholder="Search places, years, aliases, and entries…"
             autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" />
         </div>
 
@@ -101,6 +101,8 @@
             <option value="other">Other...</option>
           </select>
         </div>
+
+        <div id="sidebar-guide-card" class="sidebar-guide-card" style="display:none;"></div>
 
         <!-- Place list -->
         <div class="section-header">

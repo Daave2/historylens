@@ -36,16 +36,6 @@ import MapView from './components/MapView.js';
 import HoverCard from './components/HoverCard.js';
 import Sidebar from './components/Sidebar.js';
 import TimeSlider from './components/TimeSlider.js';
-import PlaceDetail from './components/PlaceDetail.js';
-import PlaceForm from './components/PlaceForm.js';
-import EntryForm from './components/EntryForm.js';
-import MapOverlay from './components/MapOverlay.js';
-import AuthModal from './components/AuthModal.js';
-import ProfileModal from './components/ProfileModal.js';
-import Dashboard from './components/Dashboard.js';
-import LandingPage from './components/LandingPage.js';
-import ProjectSettings from './components/ProjectSettings.js';
-import GuideModal from './components/GuideModal.js';
 
 // ── App State ──────────────────────────────────────────────
 let currentProject = null;
@@ -53,9 +43,50 @@ let currentUser = null;
 let selectedYear = new Date().getFullYear();
 let currentVisiblePlaceIds = null; // null means all are visible
 let guideModal = null;
+let guideModalHandlers = null;
+let authModalPromise = null;
+const componentModulePromises = {};
 const GUIDE_STORAGE = {
   seen: 'historylens.quick-guide.shown.v1'
 };
+
+function loadComponentModule(key, loader) {
+  if (!componentModulePromises[key]) {
+    componentModulePromises[key] = loader();
+  }
+  return componentModulePromises[key];
+}
+
+async function ensureAuthModal() {
+  if (!authModalPromise) {
+    authModalPromise = loadComponentModule('AuthModal', () => import('./components/AuthModal.js'))
+      .then(({ default: AuthModal }) => new AuthModal());
+  }
+  return authModalPromise;
+}
+
+async function ensureGuideModal() {
+  if (!guideModal) {
+    const { default: GuideModal } = await loadComponentModule('GuideModal', () => import('./components/GuideModal.js'));
+    guideModal = new GuideModal();
+    if (guideModalHandlers) {
+      guideModal.setHandlers(guideModalHandlers);
+    }
+  }
+  return guideModal;
+}
+
+function setGuideModalHandlers(handlers) {
+  guideModalHandlers = handlers;
+  if (guideModal) {
+    guideModal.setHandlers(handlers);
+  }
+}
+
+async function createProjectSettings() {
+  const { default: ProjectSettings } = await loadComponentModule('ProjectSettings', () => import('./components/ProjectSettings.js'));
+  return new ProjectSettings();
+}
 
 function getBasePath() {
   const base = import.meta.env.BASE_URL || '/';
@@ -245,30 +276,34 @@ async function init() {
   } else {
     setProjectShellVisible(true);
   }
-  const authModal = new AuthModal();
-  guideModal = new GuideModal();
-
-  const profileModal = new ProfileModal({
-    onSave: async (updates) => {
-      await updateProfile(updates);
-      // Refresh current user data specifically for the local cache
-      const updatedProfiles = await getProfiles([currentUser.id]);
-      if (updatedProfiles[currentUser.id]) {
-        currentUser = { ...currentUser, user_metadata: { ...currentUser.user_metadata, ...updates }, ...updatedProfiles[currentUser.id] };
-      }
-      updateAuthUI(currentUser);
-      showToast('Profile updated', 'success');
-
-      // If we're looking at a project, we might need to refresh attribution UI
-      if (window.dashboardComponent && !currentProject) {
-        window.dashboardComponent.show(currentUser);
-      }
-    }
-  });
-
   const authBtn = document.getElementById('btn-auth');
   const profileBtn = document.getElementById('btn-profile');
   const sessionPromise = getSession();
+  let profileModalPromise = null;
+
+  const ensureProfileModal = async () => {
+    if (!profileModalPromise) {
+      profileModalPromise = loadComponentModule('ProfileModal', () => import('./components/ProfileModal.js'))
+        .then(({ default: ProfileModal }) => new ProfileModal({
+          onSave: async (updates) => {
+            await updateProfile(updates);
+            // Refresh current user data specifically for the local cache
+            const updatedProfiles = await getProfiles([currentUser.id]);
+            if (updatedProfiles[currentUser.id]) {
+              currentUser = { ...currentUser, user_metadata: { ...currentUser.user_metadata, ...updates }, ...updatedProfiles[currentUser.id] };
+            }
+            updateAuthUI(currentUser);
+            showToast('Profile updated', 'success');
+
+            // If we're looking at a project, we might need to refresh attribution UI
+            if (window.dashboardComponent && !currentProject) {
+              window.dashboardComponent.show(currentUser);
+            }
+          }
+        }));
+    }
+    return profileModalPromise;
+  };
 
   // Render with a signed-out baseline first, then hydrate auth state.
   currentUser = null;
@@ -284,6 +319,7 @@ async function init() {
       await signOut();
       showToast('Signed out successfully', 'info');
     } else {
+      const authModal = await ensureAuthModal();
       authModal.show({
         onSuccess: (user) => {
           showToast(`Signed in as ${user.email}`, 'success');
@@ -298,6 +334,7 @@ async function init() {
     // Fetch latest profile details before showing
     const profiles = await getProfiles([currentUser.id]);
     const mergedProfile = { ...currentUser, ...(profiles[currentUser.id] || {}) };
+    const profileModal = await ensureProfileModal();
     profileModal.show(mergedProfile);
   });
 
@@ -342,7 +379,7 @@ async function init() {
 
       currentProject = await getProject(projectIdParam);
       if (!currentProject) throw new Error("Project not found");
-      initProjectView(currentProject);
+      await initProjectView(currentProject);
     } catch (err) {
       console.error(err);
       showToast('Project not found or private. Redirecting to home…', 'error');
@@ -351,7 +388,8 @@ async function init() {
       }, 1200);
     }
   } else {
-    const requestAuthFromHome = () => {
+    const requestAuthFromHome = async () => {
+      const authModal = await ensureAuthModal();
       authModal.show({
         onSuccess: (user) => {
           showToast(`Signed in as ${user.email}`, 'success');
@@ -363,19 +401,25 @@ async function init() {
       });
     };
 
+    const [{ default: Dashboard }, { default: LandingPage }] = await Promise.all([
+      loadComponentModule('Dashboard', () => import('./components/Dashboard.js')),
+      loadComponentModule('LandingPage', () => import('./components/LandingPage.js'))
+    ]);
+
     // Show Dashboard or Landing Page Context
     const dashboard = new Dashboard({
       onSelectProject: (id) => {
         window.location.search = `?project=${id}`;
       },
       onAuthRequest: requestAuthFromHome,
-      onGuideRequest: () => {
-        guideModal.showDashboard({ isSignedIn: !!currentUser });
+      onGuideRequest: async () => {
+        const modal = await ensureGuideModal();
+        modal.showDashboard({ isSignedIn: !!currentUser });
       }
     });
     window.dashboardComponent = dashboard;
 
-    guideModal.setHandlers({
+    setGuideModalHandlers({
       onSwitchDashboardTab: (tab) => {
         dashboard.setTab(tab);
         const targetBtn = dashboard.container.querySelector(`.tab-btn[data-tab="${tab}"]`);
@@ -442,6 +486,9 @@ async function initProjectView(project) {
   let placeDetail = null;
   let placeForm = null;
   let entryForm = null;
+  let mapView = null;
+  let hoverCard = null;
+  let timeSlider = null;
 
   const applyRoleChange = (nextRole) => {
     currentUserRole = nextRole;
@@ -449,31 +496,19 @@ async function initProjectView(project) {
     if (sidebar) sidebar.setProject(currentProject, permissions, currentUserRole);
   };
 
-  const showPlaceDetail = (place) => {
-    if (!placeDetail) return;
-    placeDetail.show(
-      place,
-      permissions.isReadOnly,
-      currentUser,
-      currentUserRole,
-      permissions.canSubmit && !permissions.canEditPublished
-    );
-  };
-
   // Map
-  const mapView = new MapView('map-container', {
+  mapView = new MapView('map-container', {
     centre: project.centre,
     zoom: project.defaultZoom,
-    onMapClick: (latlng) => {
+    onMapClick: async (latlng) => {
       if (!permissions.canSubmit) return;
-      if (!placeForm) return;
+      const form = await ensurePlaceForm();
       mapView.setAddMode(false);
-      placeForm.show(latlng, { suggestionMode: !permissions.canEditPublished });
+      form.show(latlng, { suggestionMode: !permissions.canEditPublished });
     },
     onMarkerClick: (place) => {
       sidebar.setActive(place.id);
-      placeDetail.activeTab = 'overview';
-      showPlaceDetail(place);
+      void showPlaceDetail(place, 'overview');
     },
     onMarkerHover: (place, point) => {
       hoverCard.show(place, point, selectedYear);
@@ -487,10 +522,10 @@ async function initProjectView(project) {
   // const mapOverlay = new MapOverlay(mapView.map);
 
   // Hover card
-  const hoverCard = new HoverCard();
+  hoverCard = new HoverCard();
 
   // Time slider
-  const timeSlider = new TimeSlider({
+  timeSlider = new TimeSlider({
     onYearChange: (year) => {
       selectedYear = year;
       // Refresh marker opacities based on data availability
@@ -507,12 +542,288 @@ async function initProjectView(project) {
     return true;
   };
 
+  const showPlaceDetail = async (place, activeTab = 'overview') => {
+    const detail = await ensurePlaceDetail();
+    detail.activeTab = activeTab;
+    await detail.show(
+      place,
+      permissions.isReadOnly,
+      currentUser,
+      currentUserRole,
+      permissions.canSubmit && !permissions.canEditPublished
+    );
+  };
+
+  const ensurePlaceDetail = async () => {
+    if (!placeDetail) {
+      const { default: PlaceDetail } = await loadComponentModule('PlaceDetail', () => import('./components/PlaceDetail.js'));
+      placeDetail = new PlaceDetail({
+        onAddEntry: async (place) => {
+          const form = await ensureEntryForm();
+          form.show(place, null, { suggestionMode: !permissions.canEditPublished });
+        },
+        onEditEntry: async (place, entry) => {
+          const form = await ensureEntryForm();
+          form.show(place, entry);
+        },
+        onDeletePlace: async (place) => {
+          mapView.removeMarker(place.id);
+          await refreshAll(mapView, sidebar, timeSlider);
+          showToast(`"${place.name}" deleted`, 'success');
+        },
+        onRegenerateOverview: async (placeId, options = {}) => {
+          return regeneratePlaceOverview(placeId, options);
+        },
+        onSuggestMove: async (place, suggestion) => {
+          await submitPlaceMoveSuggestion({
+            projectId: project.id,
+            placeId: place.id,
+            fromLat: place.lat,
+            fromLng: place.lng,
+            lat: suggestion.lat,
+            lng: suggestion.lng,
+            reason: suggestion.reason || ''
+          });
+          sidebar.setProject(currentProject, permissions, currentUserRole);
+          showToast('Location correction submitted for moderation', 'success');
+        },
+        onSuggestAlias: async (place, suggestion) => {
+          if (permissions.canEditPublished) {
+            await addPlaceNameAlias({
+              placeId: place.id,
+              projectId: project.id,
+              alias: suggestion.alias,
+              startYear: suggestion.startYear,
+              endYear: suggestion.endYear,
+              note: suggestion.note || ''
+            });
+            await sidebar.loadPlaces(project.id);
+            const refreshed = await getPlace(place.id);
+            if (refreshed) await showPlaceDetail(refreshed, 'overview');
+            showToast('Historical name added', 'success');
+            return;
+          }
+
+          await submitPlaceNameSuggestion({
+            projectId: project.id,
+            placeId: place.id,
+            alias: suggestion.alias,
+            startYear: suggestion.startYear,
+            endYear: suggestion.endYear,
+            note: suggestion.note || ''
+          });
+          sidebar.setProject(currentProject, permissions, currentUserRole);
+          showToast('Historical name suggestion submitted', 'success');
+        },
+        onPickLocationFromMap: ({ lat, lng } = {}) => {
+          return new Promise((resolve) => {
+            const previousOnMapClick = mapView.onMapClick;
+            const previousAddMode = mapView.addMode;
+            const currentZoom = mapView.map.getZoom();
+
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              mapView.panTo(lat, lng, currentZoom);
+            }
+
+            mapView.setAddMode(true);
+            showToast('Click on the map to pick the corrected location. Press Esc to cancel.', 'info');
+
+            const cleanup = (pickedLatLng) => {
+              mapView.onMapClick = previousOnMapClick;
+              mapView.setAddMode(previousAddMode);
+              document.removeEventListener('keydown', onKeyDown);
+              resolve(pickedLatLng);
+            };
+
+            const onKeyDown = (event) => {
+              if (event.key !== 'Escape') return;
+              cleanup(null);
+              showToast('Location pick cancelled.', 'info');
+            };
+
+            document.addEventListener('keydown', onKeyDown);
+
+            mapView.onMapClick = (latlng) => {
+              cleanup({ lat: latlng.lat, lng: latlng.lng });
+              showToast(`Picked ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`, 'success');
+            };
+          });
+        },
+        onClose: () => { }
+      });
+    }
+    return placeDetail;
+  };
+
+  const ensurePlaceForm = async () => {
+    if (!placeForm) {
+      const { default: PlaceForm } = await loadComponentModule('PlaceForm', () => import('./components/PlaceForm.js'));
+      placeForm = new PlaceForm({
+        mapView,
+        onSave: async ({ name, description, category, lat, lng, autoEntries }) => {
+          if (permissions.canEditPublished) {
+            const place = await createPlace({
+              projectId: project.id,
+              name, description, lat, lng, category
+            });
+            mapView.addMarker(place);
+
+            // Auto-create entries from discovered info
+            if (autoEntries && autoEntries.length > 0) {
+              for (const ae of autoEntries) {
+                await createTimeEntry({
+                  placeId: place.id,
+                  yearStart: ae.yearStart || new Date().getFullYear(),
+                  yearEnd: ae.yearEnd || null,
+                  title: ae.title || name,
+                  summary: ae.summary || '',
+                  source: ae.source || '',
+                  sourceType: ae.sourceType || 'archive',
+                  confidence: ae.confidence || 'likely'
+                });
+              }
+            }
+            await regeneratePlaceOverview(place.id, { force: false });
+
+            await sidebar.loadPlaces(project.id);
+            await timeSlider.setRange(project.id);
+            const entryCount = autoEntries?.length || 0;
+            showToast(`"${name}" added${entryCount > 0 ? ` with ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}` : ''}`, 'success');
+            return;
+          }
+
+          await submitPlaceSuggestion({
+            projectId: project.id,
+            name,
+            description,
+            category,
+            lat,
+            lng,
+            autoEntries
+          });
+          sidebar.setProject(currentProject, permissions, currentUserRole);
+          showToast('Place suggestion submitted for approval', 'success');
+        },
+        onCancel: () => {
+          mapView.setAddMode(false);
+        }
+      });
+    }
+    return placeForm;
+  };
+
+  const activeTabForEntrySave = (data) => (data.images?.length ? 'timeline' : 'overview');
+
+  const ensureEntryForm = async () => {
+    if (!entryForm) {
+      const { default: EntryForm } = await loadComponentModule('EntryForm', () => import('./components/EntryForm.js'));
+      entryForm = new EntryForm({
+        onSave: async (data) => {
+          let savedEntry;
+          if (data.entryId) {
+            if (!permissions.canEditPublished) {
+              throw new Error('You do not have permission to edit existing entries.');
+            }
+            // Editing
+            savedEntry = await updateTimeEntry(data.entryId, {
+              yearStart: data.yearStart,
+              yearEnd: data.yearEnd,
+              title: data.title,
+              summary: data.summary,
+              source: data.source,
+              sourceType: data.sourceType,
+              confidence: data.confidence
+            });
+
+            // Allow adding new images while editing an existing entry.
+            for (const img of data.images || []) {
+              try {
+                await addImage({
+                  timeEntryId: savedEntry.id,
+                  blob: img.blob,
+                  caption: img.caption,
+                  yearTaken: img.yearTaken,
+                  credit: img.credit
+                });
+              } catch (err) {
+                throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+              }
+            }
+            showToast('Entry updated', 'success');
+          } else {
+            if (permissions.canEditPublished) {
+              // Creating
+              savedEntry = await createTimeEntry({
+                placeId: data.placeId,
+                yearStart: data.yearStart,
+                yearEnd: data.yearEnd,
+                title: data.title,
+                summary: data.summary,
+                source: data.source,
+                sourceType: data.sourceType,
+                confidence: data.confidence
+              });
+
+              // Add images
+              for (const img of data.images) {
+                try {
+                  await addImage({
+                    timeEntryId: savedEntry.id,
+                    blob: img.blob,
+                    caption: img.caption,
+                    yearTaken: img.yearTaken,
+                    credit: img.credit
+                  });
+                } catch (err) {
+                  throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+                }
+              }
+              showToast('Entry added', 'success');
+            } else if (permissions.canSubmit) {
+              await submitEntrySuggestion({
+                projectId: project.id,
+                placeId: data.placeId,
+                yearStart: data.yearStart,
+                yearEnd: data.yearEnd,
+                title: data.title,
+                summary: data.summary,
+                source: data.source,
+                sourceType: data.sourceType,
+                confidence: data.confidence
+              });
+              sidebar.setProject(currentProject, permissions, currentUserRole);
+              showToast(
+                data.images?.length
+                  ? 'Entry suggestion submitted (images can be added after approval).'
+                  : 'Entry suggestion submitted for approval.',
+                'success'
+              );
+              return;
+            } else {
+              throw new Error('You need edit access to add timeline entries.');
+            }
+          }
+
+          await timeSlider.setRange(project.id);
+          await sidebar.loadPlaces(project.id);
+
+          // Refresh detail if open
+          const place = await getPlacesByProject(project.id).then(places => places.find(p => p.id === data.placeId));
+          if (place) {
+            await showPlaceDetail(place, activeTabForEntrySave(data));
+          }
+        },
+        onCancel: () => { }
+      });
+    }
+    return entryForm;
+  };
+
   // Sidebar
   sidebar = new Sidebar({
     onPlaceClick: (place) => {
       mapView.panTo(place.lat, place.lng);
-      placeDetail.activeTab = 'overview';
-      showPlaceDetail(place);
+      void showPlaceDetail(place, 'overview');
       if (mobileSidebarQuery.matches) {
         sidebar.el.classList.add('collapsed');
       }
@@ -545,8 +856,8 @@ async function initProjectView(project) {
     onProjectEdit: async (changes) => {
       currentProject = await updateProject(project.id, changes);
     },
-    onProjectSettings: () => {
-      const settingsModal = new ProjectSettings();
+    onProjectSettings: async () => {
+      const settingsModal = await createProjectSettings();
       settingsModal.showManage(currentProject, currentUserRole, {
         onSetCentre: async () => {
           const centre = mapView.map.getCenter();
@@ -570,27 +881,28 @@ async function initProjectView(project) {
         }
       });
     },
-    onRequestAccess: () => {
+    onRequestAccess: async () => {
       const handleAccessRequestResult = (result) => {
         const nextRole = result?.role || 'pending';
         applyRoleChange(nextRole);
       };
 
       if (!currentUser) {
-        const authModal = new AuthModal();
+        const authModal = await ensureAuthModal();
         authModal.show({
-          onSuccess: () => {
-            const settingsModal = new ProjectSettings();
+          onSuccess: async () => {
+            const settingsModal = await createProjectSettings();
             settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
           }
         });
         return;
       }
-      const settingsModal = new ProjectSettings();
+      const settingsModal = await createProjectSettings();
       settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
     },
-    onGuide: () => {
-      guideModal?.showProject({
+    onGuide: async () => {
+      const modal = await ensureGuideModal();
+      modal.showProject({
         canSubmit: permissions.canSubmit,
         canEditPublished: permissions.canEditPublished
       });
@@ -599,7 +911,7 @@ async function initProjectView(project) {
   sidebar.setProject(project, permissions, currentUserRole);
   await sidebar.loadPlaces(project.id);
 
-  guideModal?.setHandlers({
+  setGuideModalHandlers({
     onFocusSearch: () => {
       const searchInput = document.getElementById('place-search');
       if (!searchInput) return;
@@ -641,255 +953,16 @@ async function initProjectView(project) {
     mobileSidebarQuery.addListener(applyResponsiveSidebar);
   }
 
-  // Place detail
-  placeDetail = new PlaceDetail({
-    onAddEntry: (place) => {
-      if (!entryForm) return;
-      entryForm.show(place, null, { suggestionMode: !permissions.canEditPublished });
-    },
-    onEditEntry: (place, entry) => {
-      if (!entryForm) return;
-      entryForm.show(place, entry);
-    },
-    onDeletePlace: async (place) => {
-      mapView.removeMarker(place.id);
-      await refreshAll(mapView, sidebar, timeSlider);
-      showToast(`"${place.name}" deleted`, 'success');
-    },
-    onRegenerateOverview: async (placeId) => {
-      return regeneratePlaceOverview(placeId, { force: true });
-    },
-    onSuggestMove: async (place, suggestion) => {
-      await submitPlaceMoveSuggestion({
-        projectId: project.id,
-        placeId: place.id,
-        fromLat: place.lat,
-        fromLng: place.lng,
-        lat: suggestion.lat,
-        lng: suggestion.lng,
-        reason: suggestion.reason || ''
-      });
-      sidebar.setProject(currentProject, permissions, currentUserRole);
-      showToast('Location correction submitted for moderation', 'success');
-    },
-    onSuggestAlias: async (place, suggestion) => {
-      if (permissions.canEditPublished) {
-        await addPlaceNameAlias({
-          placeId: place.id,
-          projectId: project.id,
-          alias: suggestion.alias,
-          startYear: suggestion.startYear,
-          endYear: suggestion.endYear,
-          note: suggestion.note || ''
-        });
-        await sidebar.loadPlaces(project.id);
-        const refreshed = await getPlace(place.id);
-        if (refreshed) showPlaceDetail(refreshed);
-        showToast('Historical name added', 'success');
-        return;
-      }
-
-      await submitPlaceNameSuggestion({
-        projectId: project.id,
-        placeId: place.id,
-        alias: suggestion.alias,
-        startYear: suggestion.startYear,
-        endYear: suggestion.endYear,
-        note: suggestion.note || ''
-      });
-      sidebar.setProject(currentProject, permissions, currentUserRole);
-      showToast('Historical name suggestion submitted', 'success');
-    },
-    onPickLocationFromMap: ({ lat, lng } = {}) => {
-      return new Promise((resolve) => {
-        const previousOnMapClick = mapView.onMapClick;
-        const previousAddMode = mapView.addMode;
-        const currentZoom = mapView.map.getZoom();
-
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          mapView.panTo(lat, lng, currentZoom);
-        }
-
-        mapView.setAddMode(true);
-        showToast('Click on the map to pick the corrected location. Press Esc to cancel.', 'info');
-
-        const cleanup = (pickedLatLng) => {
-          mapView.onMapClick = previousOnMapClick;
-          mapView.setAddMode(previousAddMode);
-          document.removeEventListener('keydown', onKeyDown);
-          resolve(pickedLatLng);
-        };
-
-        const onKeyDown = (event) => {
-          if (event.key !== 'Escape') return;
-          cleanup(null);
-          showToast('Location pick cancelled.', 'info');
-        };
-
-        document.addEventListener('keydown', onKeyDown);
-
-        mapView.onMapClick = (latlng) => {
-          cleanup({ lat: latlng.lat, lng: latlng.lng });
-          showToast(`Picked ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`, 'success');
-        };
-      });
-    },
-    onClose: () => { }
-  });
-
-  // Place form
-  placeForm = new PlaceForm({
-    mapView,
-    onSave: async ({ name, description, category, lat, lng, autoEntries }) => {
-      if (permissions.canEditPublished) {
-        const place = await createPlace({
-          projectId: project.id,
-          name, description, lat, lng, category
-        });
-        mapView.addMarker(place);
-
-        // Auto-create entries from discovered info
-        if (autoEntries && autoEntries.length > 0) {
-          for (const ae of autoEntries) {
-            await createTimeEntry({
-              placeId: place.id,
-              yearStart: ae.yearStart || new Date().getFullYear(),
-              yearEnd: ae.yearEnd || null,
-              title: ae.title || name,
-              summary: ae.summary || '',
-              source: ae.source || '',
-              sourceType: ae.sourceType || 'archive',
-              confidence: ae.confidence || 'likely'
-            });
-          }
-        }
-        await regeneratePlaceOverview(place.id, { force: false });
-
-        await sidebar.loadPlaces(project.id);
-        await timeSlider.setRange(project.id);
-        const entryCount = autoEntries?.length || 0;
-        showToast(`"${name}" added${entryCount > 0 ? ` with ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}` : ''}`, 'success');
-        return;
-      }
-
-      await submitPlaceSuggestion({
-        projectId: project.id,
-        name,
-        description,
-        category,
-        lat,
-        lng,
-        autoEntries
-      });
-      sidebar.setProject(currentProject, permissions, currentUserRole);
-      showToast('Place suggestion submitted for approval', 'success');
-    },
-    onCancel: () => {
-      mapView.setAddMode(false);
-    }
-  });
-
-  // Entry form
-  entryForm = new EntryForm({
-    onSave: async (data) => {
-      let savedEntry;
-      if (data.entryId) {
-        if (!permissions.canEditPublished) {
-          throw new Error('You do not have permission to edit existing entries.');
-        }
-        // Editing
-        savedEntry = await updateTimeEntry(data.entryId, {
-          yearStart: data.yearStart,
-          yearEnd: data.yearEnd,
-          title: data.title,
-          summary: data.summary,
-          source: data.source,
-          sourceType: data.sourceType,
-          confidence: data.confidence
-        });
-
-        // Allow adding new images while editing an existing entry.
-        for (const img of data.images || []) {
-          try {
-            await addImage({
-              timeEntryId: savedEntry.id,
-              blob: img.blob,
-              caption: img.caption,
-              yearTaken: img.yearTaken,
-              credit: img.credit
-            });
-          } catch (err) {
-            throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
-          }
-        }
-        showToast('Entry updated', 'success');
-      } else {
-        if (permissions.canEditPublished) {
-          // Creating
-          savedEntry = await createTimeEntry({
-            placeId: data.placeId,
-            yearStart: data.yearStart,
-            yearEnd: data.yearEnd,
-            title: data.title,
-            summary: data.summary,
-            source: data.source,
-            sourceType: data.sourceType,
-            confidence: data.confidence
-          });
-
-          // Add images
-          for (const img of data.images) {
-            try {
-              await addImage({
-                timeEntryId: savedEntry.id,
-                blob: img.blob,
-                caption: img.caption,
-                yearTaken: img.yearTaken,
-                credit: img.credit
-              });
-            } catch (err) {
-              throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
-            }
-          }
-          showToast('Entry added', 'success');
-        } else if (permissions.canSubmit) {
-          await submitEntrySuggestion({
-            projectId: project.id,
-            placeId: data.placeId,
-            yearStart: data.yearStart,
-            yearEnd: data.yearEnd,
-            title: data.title,
-            summary: data.summary,
-            source: data.source,
-            sourceType: data.sourceType,
-            confidence: data.confidence
-          });
-          sidebar.setProject(currentProject, permissions, currentUserRole);
-          showToast(
-            data.images?.length
-              ? 'Entry suggestion submitted (images can be added after approval).'
-              : 'Entry suggestion submitted for approval.',
-            'success'
-          );
-          return;
-        } else {
-          throw new Error('You need edit access to add timeline entries.');
-        }
-      }
-
-      await timeSlider.setRange(project.id);
-      await sidebar.loadPlaces(project.id);
-
-      // Refresh detail if open
-      const place = await getPlacesByProject(project.id).then(places => places.find(p => p.id === data.placeId));
-      if (place) {
-        // Keep overview as default generally, but jump to timeline after image uploads
-        placeDetail.activeTab = data.images?.length ? 'timeline' : 'overview';
-        showPlaceDetail(place);
-      }
-    },
-    onCancel: () => { }
-  });
+  const warmProjectUi = () => {
+    void ensurePlaceDetail();
+    void ensurePlaceForm();
+    void ensureEntryForm();
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(warmProjectUi, { timeout: 1500 });
+  } else {
+    window.setTimeout(warmProjectUi, 1200);
+  }
 
   // CSV export keyboard shortcut (Ctrl+Shift+E)
   document.addEventListener('keydown', async (e) => {
@@ -971,34 +1044,40 @@ function spotlightElement(element, durationMs = 1200) {
   window.setTimeout(() => element.classList.remove('guide-highlight'), durationMs);
 }
 
-async function regeneratePlaceOverview(placeId, { force = false } = {}) {
+async function regeneratePlaceOverview(placeId, { force = false, apply = true, overviewText = null } = {}) {
   try {
     const place = await getPlace(placeId);
-    if (!place) return { updated: false, place: null, previousDescription: '' };
+    if (!place) return { updated: false, place: null, previousDescription: '', nextDescription: '' };
     const previousDescription = (place.description || '').trim();
-    if (!force && previousDescription) {
-      return { updated: false, place, previousDescription };
+    if (!force && previousDescription && apply) {
+      return { updated: false, place, previousDescription, nextDescription: previousDescription };
     }
 
-    const entries = await getTimeEntriesForPlace(placeId);
-    const overview = await generatePlaceOverview(place, entries);
-    if (overview && overview.trim() && overview.trim() !== previousDescription) {
-      await updatePlace(placeId, { description: overview });
+    const nextDescription = (overviewText !== null && overviewText !== undefined)
+      ? String(overviewText).trim()
+      : (await generatePlaceOverview(place, await getTimeEntriesForPlace(placeId))).trim();
+
+    if (nextDescription && nextDescription !== previousDescription) {
+      if (!apply) {
+        return { updated: true, place, previousDescription, nextDescription };
+      }
+
+      await updatePlace(placeId, { description: nextDescription });
       // Keep place updates resilient even if overview-history migration is missing.
       try {
         await createOverviewRevision({
           placeId,
           previousDescription,
-          newDescription: overview,
+          newDescription: nextDescription,
           reason: 'regenerate'
         });
       } catch (historyErr) {
         console.warn('Could not log overview revision:', historyErr);
       }
       const updated = await getPlace(placeId);
-      return { updated: true, place: updated || place, previousDescription };
+      return { updated: true, place: updated || place, previousDescription, nextDescription };
     }
-    return { updated: false, place, previousDescription };
+    return { updated: false, place, previousDescription, nextDescription };
   } catch (err) {
     console.warn('Overview regeneration skipped:', err);
     throw err;

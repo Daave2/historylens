@@ -1,4 +1,4 @@
-import { getPlacesByProject, getTimeEntriesForPlace, getPrimaryPlaceImage, getMySubmissionSummary, getProjectInboxCounts } from '../data/store.js';
+import { getPlacesByProject, getTimeEntriesForPlaces, getPrimaryPlaceImage, getMySubmissionSummary, getProjectInboxCounts } from '../data/store.js';
 import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 
 export default class Sidebar {
@@ -11,6 +11,7 @@ export default class Sidebar {
         this.toggleBtn = document.getElementById('sidebar-toggle');
         this.projectNameEl = document.getElementById('project-name');
         this.projectDescEl = document.getElementById('project-desc');
+        this.guideCardEl = document.getElementById('sidebar-guide-card');
         this.addBtn = document.getElementById('btn-add-place');
         this.guideBtn = document.getElementById('btn-guide');
         this.importBtn = document.getElementById('btn-import');
@@ -24,9 +25,14 @@ export default class Sidebar {
         this.inboxRequestToken = 0;
 
         this.onPlaceClick = onPlaceClick;
+        this.onAddPlace = onAddPlace;
+        this.onGuide = onGuide;
         this.onProjectEdit = onProjectEdit;
+        this.onRequestAccess = onRequestAccess;
         this.onFilterChange = onFilterChange;
         this.places = [];
+        this.entriesByPlaceId = {};
+        this.hasLoadedPlaces = false;
         this.activeId = null;
         this.renderGeneration = 0;
 
@@ -67,8 +73,9 @@ export default class Sidebar {
         this.canEditPublished = !!permissions.canEditPublished;
         this.currentProjectId = project.id;
         this.currentUserRole = currentUserRole;
+        this.hasLoadedPlaces = false;
         this.projectNameEl.textContent = project.name;
-        this.projectDescEl.textContent = project.description || 'Click to add a description…';
+        this.projectDescEl.textContent = project.description || this.getProjectDescriptionPlaceholder();
 
         if (this.canEditPublished) {
             this.projectNameEl.classList.add('editable-title');
@@ -132,6 +139,7 @@ export default class Sidebar {
         }
 
         this.refreshInboxBadge();
+        this.renderGuideCard();
     }
 
     async renderPendingSubmissionSummary(projectId) {
@@ -189,8 +197,10 @@ export default class Sidebar {
 
     async loadPlaces(projectId) {
         this.places = await getPlacesByProject(projectId);
-        this.countEl.textContent = this.places.length;
-        this.renderPlaces(this.places);
+        this.entriesByPlaceId = await getTimeEntriesForPlaces(this.places.map(place => place.id));
+        this.hasLoadedPlaces = true;
+        this.filterPlaces();
+        this.renderGuideCard();
     }
 
     filterPlaces() {
@@ -201,10 +211,18 @@ export default class Sidebar {
             const pName = p.name || '';
             const pCatOriginal = p.category || '';
             const aliasText = (p.aliases || []).map(a => a.alias).join(' ').toLowerCase();
+            const entryText = (this.entriesByPlaceId[p.id] || []).map(entry => [
+                entry.title,
+                entry.summary,
+                entry.source,
+                entry.yearStart,
+                entry.yearEnd
+            ].filter(value => value !== null && value !== undefined && value !== '').join(' ')).join(' ').toLowerCase();
             const matchesQuery = !query
                 || pName.toLowerCase().includes(query)
                 || pCatOriginal.toLowerCase().includes(query)
-                || aliasText.includes(query);
+                || aliasText.includes(query)
+                || entryText.includes(query);
 
             // Allow matching "other" categories by checking if it's not one of our standard ones
             let pCat = pCatOriginal.toLowerCase();
@@ -217,12 +235,15 @@ export default class Sidebar {
             return matchesQuery && matchesCat;
         });
 
+        this.countEl.textContent = filtered.length;
         this.renderPlaces(filtered);
         this.onFilterChange?.(filtered.map(p => p.id));
+        this.renderGuideCard();
     }
 
     async renderPlaces(places) {
         const currentGen = ++this.renderGeneration;
+        const hasFilters = Boolean(this.searchInput.value.trim() || (this.categoryFilter && this.categoryFilter.value));
 
         if (places.length === 0) {
             this.listEl.innerHTML = `
@@ -231,8 +252,10 @@ export default class Sidebar {
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
             <circle cx="12" cy="10" r="3"/>
           </svg>
-          <h4>No places yet</h4>
-          <p>Click "Add Place" then click on the map to mark a point of interest.</p>
+          <h4>${hasFilters ? 'No matching places' : 'No places yet'}</h4>
+          <p>${hasFilters
+                ? 'Try a different name, year, alias, or category.'
+                : this.getEmptyStateDescription()}</p>
         </div>
       `;
             return;
@@ -250,8 +273,7 @@ export default class Sidebar {
             item.className = 'place-item' + (place.id === this.activeId ? ' active' : '');
             item.dataset.placeId = place.id;
 
-            // Get a ranked main image for thumbnail.
-            const entries = await getTimeEntriesForPlace(place.id);
+            const entries = this.entriesByPlaceId[place.id] || [];
             let thumbHtml = '';
             const primaryImage = await getPrimaryPlaceImage(place.id);
             if (primaryImage?.publicUrl) {
@@ -304,6 +326,104 @@ export default class Sidebar {
         }
     }
 
+    getProjectDescriptionPlaceholder() {
+        return this.canEditPublished
+            ? 'Add a short summary for this map.'
+            : 'No project summary yet.';
+    }
+
+    getEmptyStateDescription() {
+        if (this.canEditPublished) {
+            return 'Add the first place to start building this map.';
+        }
+        if (this.canSubmit) {
+            return 'Suggest the first place and it will go to review before it appears on the map.';
+        }
+        return 'This map does not have any places yet.';
+    }
+
+    renderGuideCard() {
+        if (!this.guideCardEl) return;
+
+        const hasFilters = Boolean(this.searchInput.value.trim() || (this.categoryFilter && this.categoryFilter.value));
+        if (!this.currentProjectId || !this.hasLoadedPlaces || this.places.length > 0 || hasFilters) {
+            this.guideCardEl.style.display = 'none';
+            this.guideCardEl.innerHTML = '';
+            return;
+        }
+
+        let title = 'Start with one place';
+        let description = 'This map is empty right now. One place and one dated entry is enough to get it started.';
+        let steps = [
+            'Click Add Place.',
+            'Click the map to drop the marker.',
+            'Open the place and add the first dated entry.'
+        ];
+        let primaryAction = { id: 'add', label: 'Add First Place' };
+
+        if (this.canSubmit && !this.canEditPublished) {
+            title = 'Make the first suggestion';
+            description = 'You can suggest the first place now, even while your edit access is still being reviewed.';
+            steps = [
+                'Click Suggest Place.',
+                'Click the map to mark the location.',
+                'Add a short note so reviewers know why it matters.'
+            ];
+            primaryAction = { id: 'add', label: 'Suggest First Place' };
+        } else if (!this.canSubmit) {
+            title = 'This map is waiting for its first place';
+            description = this.currentUserRole === 'banned'
+                ? 'You can still read the map, but you do not currently have editing access.'
+                : 'You can still browse later or open the guide for the quickest way to contribute.';
+            steps = this.currentUserRole === null
+                ? [
+                    'Use search once places have been added.',
+                    'Open any place to read the timeline and sources.',
+                    'Request access if you should help build this map.'
+                ]
+                : [
+                    'Use search once places have been added.',
+                    'Open any place to read the timeline and sources.',
+                    'Open the guide for the fastest walkthrough of the project.'
+                ];
+            primaryAction = this.currentUserRole === null
+                ? { id: 'request', label: 'Request Access' }
+                : { id: 'guide', label: 'Open Guide' };
+        }
+
+        this.guideCardEl.innerHTML = `
+          <div class="sidebar-guide-kicker">Start Here</div>
+          <h4>${escapeHtml(title)}</h4>
+          <p>${escapeHtml(description)}</p>
+          <ol class="sidebar-guide-steps">
+            ${steps.map((step, index) => `
+              <li>
+                <span>${index + 1}</span>
+                <div>${escapeHtml(step)}</div>
+              </li>
+            `).join('')}
+          </ol>
+          <div class="sidebar-guide-actions">
+            <button class="btn btn-primary" data-sidebar-guide-action="${escapeAttr(primaryAction.id)}">${escapeHtml(primaryAction.label)}</button>
+            ${primaryAction.id !== 'guide' ? '<button class="btn btn-ghost" data-sidebar-guide-action="guide">Open Guide</button>' : ''}
+          </div>
+        `;
+        this.guideCardEl.style.display = 'block';
+
+        this.guideCardEl.querySelectorAll('[data-sidebar-guide-action]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const action = button.dataset.sidebarGuideAction;
+                if (action === 'add') {
+                    this.onAddPlace?.();
+                } else if (action === 'request') {
+                    this.onRequestAccess?.();
+                } else if (action === 'guide') {
+                    this.onGuide?.();
+                }
+            });
+        });
+    }
+
     setActive(placeId) {
         this.activeId = placeId;
         this.listEl.querySelectorAll('.place-item').forEach(el => {
@@ -352,7 +472,8 @@ export default class Sidebar {
 
     editProjectDesc() {
         const current = this.projectDescEl.textContent;
-        const isPlaceholder = current === 'Click to add a description…';
+        const placeholder = this.getProjectDescriptionPlaceholder();
+        const isPlaceholder = current === placeholder;
         const input = document.createElement('input');
         input.className = 'form-input';
         input.value = isPlaceholder ? '' : current;
@@ -367,7 +488,7 @@ export default class Sidebar {
             const el = document.createElement('p');
             el.id = 'project-desc';
             el.className = 'editable-desc';
-            el.textContent = newDesc || 'Click to add a description…';
+            el.textContent = newDesc || placeholder;
             el.addEventListener('click', () => this.editProjectDesc());
             input.replaceWith(el);
             this.projectDescEl = el;

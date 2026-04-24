@@ -105,7 +105,7 @@ export default class PlaceDetail {
       }).join('');
     const versionHistoryHtml = canManageOverview && overviewHistory.length > 0 ? `
       <details style="margin-top: var(--space-lg); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
-        <summary style="cursor:pointer; color: var(--text-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;">Previous Versions (${overviewHistory.length})</summary>
+        <summary style="cursor:pointer; color: var(--text-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;">Previous Summary Versions (${overviewHistory.length})</summary>
         <div style="display:flex; flex-direction:column; gap: var(--space-xs); margin-top: var(--space-md);">${historyHtml}</div>
       </details>
     ` : '';
@@ -119,7 +119,7 @@ export default class PlaceDetail {
         ${canManageOverview ? `
           <div style="margin-top: var(--space-md); display: flex; gap: var(--space-sm); flex-wrap: wrap;">
             <button class="btn btn-ghost" id="detail-edit-overview">Edit Summary</button>
-            <button class="btn btn-ghost" id="detail-refresh-overview">Build From Timeline</button>
+            <button class="btn btn-ghost" id="detail-refresh-overview">Preview Timeline Draft</button>
           </div>
         ` : ''}
         ${versionHistoryHtml}
@@ -397,12 +397,12 @@ export default class PlaceDetail {
 
         panel.innerHTML = `
           <div class="form-group">
-            <label class="form-label">Overview</label>
+            <label class="form-label">Summary</label>
             <textarea id="detail-overview-input" class="form-textarea" style="min-height: 180px;">${escapeHtml(currentCleanText)}</textarea>
           </div>
           <div style="display:flex; gap: var(--space-sm); justify-content:flex-end;">
             <button class="btn btn-ghost" id="detail-overview-cancel">Cancel</button>
-            <button class="btn btn-primary" id="detail-overview-save">Save Overview</button>
+            <button class="btn btn-primary" id="detail-overview-save">Save Summary</button>
           </div>
         `;
 
@@ -438,7 +438,7 @@ export default class PlaceDetail {
             overviewTab?.click();
           } catch (err) {
             console.error(err);
-            await this.showNotice('Failed to save overview.', 'Save Failed');
+            await this.showNotice('Failed to save the summary.', 'Save Failed');
           }
         });
       });
@@ -447,16 +447,27 @@ export default class PlaceDetail {
     const refreshOverviewBtn = this.content.querySelector('#detail-refresh-overview');
     if (refreshOverviewBtn) {
       refreshOverviewBtn.addEventListener('click', async () => {
-        const confirmed = await this.confirmAction(
-          'Build the summary from timeline entries? This will replace the current text, but you can restore a previous version.',
-          'Build Summary'
-        );
-        if (!confirmed) return;
-
         try {
           refreshOverviewBtn.disabled = true;
-          refreshOverviewBtn.textContent = 'Building...';
-          const result = await this.onRegenerateOverview?.(place.id);
+          refreshOverviewBtn.textContent = 'Building Draft...';
+          const preview = await this.onRegenerateOverview?.(place.id, { force: true, apply: false });
+          if (!preview?.updated || !preview.nextDescription) {
+            await this.showNotice('Summary is already up to date.', 'No Changes');
+            return;
+          }
+
+          const confirmed = await this.promptOverviewPreview({
+            currentText: overviewText,
+            nextText: preview.nextDescription
+          });
+          if (!confirmed) return;
+
+          refreshOverviewBtn.textContent = 'Saving Summary...';
+          const result = await this.onRegenerateOverview?.(place.id, {
+            force: true,
+            apply: true,
+            overviewText: preview.nextDescription
+          });
           if (result?.updated) {
             await this.show(result.place || place, isReadOnly, currentUser, currentUserRole, canSuggest);
             this.content.querySelector('.tab-btn[data-tab="overview"]')?.click();
@@ -469,7 +480,7 @@ export default class PlaceDetail {
           await this.showNotice('Failed to build the summary.', 'Build Failed');
         } finally {
           refreshOverviewBtn.disabled = false;
-          refreshOverviewBtn.textContent = 'Build From Timeline';
+          refreshOverviewBtn.textContent = 'Preview Timeline Draft';
         }
       });
     }
@@ -479,8 +490,8 @@ export default class PlaceDetail {
         const revisionId = btn.dataset.revisionId;
         if (!revisionId) return;
         const confirmed = await this.confirmAction(
-          'Restore this overview version? This will replace the current overview text.',
-          'Restore Version'
+          'Restore this summary version? This will replace the current summary text.',
+          'Restore Summary'
         );
         if (!confirmed) return;
         try {
@@ -489,7 +500,7 @@ export default class PlaceDetail {
           this.content.querySelector('.tab-btn[data-tab="overview"]')?.click();
         } catch (err) {
           console.error(err);
-          await this.showNotice('Failed to restore overview version.', 'Restore Failed');
+          await this.showNotice('Failed to restore the summary version.', 'Restore Failed');
         }
       });
     });
@@ -841,6 +852,49 @@ export default class PlaceDetail {
       });
       overlay.querySelector('#confirm-cancel')?.addEventListener('click', () => cleanup(false));
       overlay.querySelector('#confirm-accept')?.addEventListener('click', () => cleanup(true));
+      document.body.appendChild(overlay);
+    });
+  }
+
+  async promptOverviewPreview({ currentText = '', nextText = '' } = {}) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.display = 'flex';
+      overlay.style.zIndex = '3200';
+      overlay.innerHTML = `
+        <div class="modal glass-panel modal-large overview-preview-modal">
+          <h3 style="font-family: var(--font-heading); margin-bottom: var(--space-sm);">Preview Timeline-Built Summary</h3>
+          <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">
+            Nothing changes until you confirm. Review the draft side by side before replacing the current summary.
+          </p>
+          <div class="overview-preview-grid">
+            <section class="overview-preview-card">
+              <div class="overview-preview-label">Current Summary</div>
+              <div class="overview-preview-body">${currentText ? escapeHtml(currentText) : '<span class="overview-preview-empty">No summary yet.</span>'}</div>
+            </section>
+            <section class="overview-preview-card">
+              <div class="overview-preview-label">Timeline Draft</div>
+              <div class="overview-preview-body">${nextText ? escapeHtml(nextText) : '<span class="overview-preview-empty">No summary generated.</span>'}</div>
+            </section>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap: var(--space-sm); margin-top: var(--space-lg);">
+            <button class="btn btn-ghost" id="overview-preview-cancel">Keep Current Summary</button>
+            <button class="btn btn-primary" id="overview-preview-confirm">Replace With Draft</button>
+          </div>
+        </div>
+      `;
+
+      const cleanup = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+
+      overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) cleanup(false);
+      });
+      overlay.querySelector('#overview-preview-cancel')?.addEventListener('click', () => cleanup(false));
+      overlay.querySelector('#overview-preview-confirm')?.addEventListener('click', () => cleanup(true));
       document.body.appendChild(overlay);
     });
   }

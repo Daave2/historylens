@@ -191,16 +191,16 @@ export default class ProjectSettings {
         const titleEl = this.modal.querySelector('#ps-modal-title');
         const bodyEl = this.modal.querySelector('#ps-modal-body');
 
-        titleEl.textContent = 'Project Settings';
+        titleEl.textContent = 'Manage Map';
 
         bodyEl.innerHTML = `
       <div class="ps-layout">
         <!-- Sidebar Navigation -->
         <div class="ps-nav">
           <ul id="ps-tabs" class="ps-tabs">
-            <li class="ps-tab active" data-tab="general">General</li>
-            <li class="ps-tab" data-tab="collab">Collaborators</li>
-            ${this.currentUserRole === 'owner' || this.currentUserRole === 'admin' ? `<li class="ps-tab" data-tab="mod">Moderation</li>` : ''}
+            <li class="ps-tab active" data-tab="general">Project</li>
+            <li class="ps-tab" data-tab="collab">Access</li>
+            ${this.currentUserRole === 'owner' || this.currentUserRole === 'admin' ? `<li class="ps-tab" data-tab="mod">Review</li>` : ''}
             ${this.currentUserRole === 'owner' ? `<li class="ps-tab" data-tab="danger" style="color: var(--danger);">Danger Zone</li>` : ''}
           </ul>
         </div>
@@ -257,7 +257,10 @@ export default class ProjectSettings {
 
     renderGeneralTab(container) {
         container.innerHTML = `
-      <h3 style="margin-bottom: var(--space-lg);">General Settings</h3>
+      <div class="ps-pane-header">
+        <h3>Project Details</h3>
+        <p>Update the name, short summary, privacy, and opening map view.</p>
+      </div>
       
       <div class="form-group">
         <label class="form-label">Project Name</label>
@@ -335,56 +338,100 @@ export default class ProjectSettings {
     async renderManageList(container) {
         try {
             const roles = await getProjectRoles(this.project.id);
-            // Filter out banned users for the regular collab tab
-            const visibleRoles = roles.filter(r => r.role !== 'banned');
+            const pendingRoles = roles.filter(r => r.role === 'pending');
+            const activeRoles = roles.filter(r => r.role !== 'pending' && r.role !== 'banned');
 
-            let html = `<h3 style="margin-bottom: var(--space-lg);">Collaborators</h3>`;
-            html += `<ul class="collab-list" style="list-style: none; padding: 0; margin: 0;">`;
-
-            if (visibleRoles.length === 0) {
-                html += `<li style="color: var(--text-muted); text-align: center; padding: var(--space-lg) 0;">No collaborators yet.</li>`;
-            }
-
-            visibleRoles.forEach(r => {
-                let actions = '';
-
-                if (r.role === 'pending') {
-                    actions = `
-            <button class="btn btn-sm btn-primary collab-approve" data-id="${escapeAttr(r.id)}">Approve</button>
-            <button class="btn btn-sm btn-danger collab-reject" data-id="${escapeAttr(r.id)}">Reject</button>
-          `;
-                } else {
-                    actions = `
-            <select class="collab-role-select" data-id="${escapeAttr(r.id)}">
-              <option value="editor" ${r.role === 'editor' ? 'selected' : ''}>Editor</option>
-              <option value="admin" ${r.role === 'admin' ? 'selected' : ''}>Admin</option>
-            </select>
-            <button class="icon-btn btn-danger collab-remove" data-id="${escapeAttr(r.id)}" title="Remove access">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          `;
-                }
-
+            const renderPerson = (r) => {
                 const authorDisplay = r.email.display_name || (r.email.email ? r.email.email.split('@')[0] : 'Unknown');
                 const seed = r.email.display_name || r.email.email || 'user';
                 const avatarUrl = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(seed)}&backgroundColor=1f2937&textColor=f3f4f6`;
+                return { authorDisplay, avatarUrl };
+            };
 
-                html += `
-          <li style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-md) 0; border-bottom: 1px solid var(--bg-hover);">
-            <div style="display: flex; align-items: center; gap: var(--space-sm);">
-              <img src="${escapeAttr(avatarUrl)}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">
-              <div>
-                <div style="font-weight: 500; color: var(--text-primary);">${escapeHtml(authorDisplay)}</div>
-                <div style="font-size: var(--text-xs); color: var(--text-secondary); text-transform: uppercase;">${escapeHtml(r.role)}</div>
+            let html = `
+              <div class="ps-pane-header">
+                <h3>Access</h3>
+                <p>Approve requests, choose who can edit, and remove access when needed.</p>
               </div>
-            </div>
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-              ${actions}
-            </div>
-          </li>
-        `;
-            });
-            html += `</ul>`;
+            `;
+
+            html += `
+              <section class="ps-section">
+                <div class="ps-section-heading">
+                  <h4>Pending Access Requests</h4>
+                  <p>People waiting to help edit this map.</p>
+                </div>
+            `;
+
+            if (pendingRoles.length === 0) {
+                html += `<div class="ps-empty">No access requests are waiting right now.</div>`;
+            } else {
+                html += pendingRoles.map((r) => {
+                    const { authorDisplay, avatarUrl } = renderPerson(r);
+                    return `
+                      <div class="ps-row">
+                        <div class="ps-row-person">
+                          <img src="${escapeAttr(avatarUrl)}" alt="Avatar" class="ps-avatar">
+                          <div>
+                            <div class="ps-row-title">${escapeHtml(authorDisplay)}</div>
+                            <div class="ps-row-meta">Waiting for approval</div>
+                          </div>
+                        </div>
+                        <div class="ps-row-actions">
+                          <button class="btn btn-sm btn-primary collab-approve" data-id="${escapeAttr(r.id)}">Approve</button>
+                          <button class="btn btn-sm btn-danger collab-reject" data-id="${escapeAttr(r.id)}">Reject</button>
+                        </div>
+                      </div>
+                    `;
+                }).join('');
+            }
+            html += `</section>`;
+
+            html += `
+              <section class="ps-section">
+                <div class="ps-section-heading">
+                  <h4>People With Access</h4>
+                  <p>Editors and admins who can already work on the map.</p>
+                </div>
+            `;
+
+            if (activeRoles.length === 0) {
+                html += `<div class="ps-empty">No one has been granted access yet.</div>`;
+            } else {
+                html += activeRoles.map((r) => {
+                    const { authorDisplay, avatarUrl } = renderPerson(r);
+                    let actions = '';
+                    if (r.role === 'owner') {
+                        actions = `<span class="badge">Owner</span>`;
+                    } else {
+                        actions = `
+                          <select class="collab-role-select" data-id="${escapeAttr(r.id)}">
+                            <option value="editor" ${r.role === 'editor' ? 'selected' : ''}>Editor</option>
+                            <option value="admin" ${r.role === 'admin' ? 'selected' : ''}>Admin</option>
+                          </select>
+                          <button class="icon-btn btn-danger collab-remove" data-id="${escapeAttr(r.id)}" title="Remove access">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                          </button>
+                        `;
+                    }
+
+                    return `
+                      <div class="ps-row">
+                        <div class="ps-row-person">
+                          <img src="${escapeAttr(avatarUrl)}" alt="Avatar" class="ps-avatar">
+                          <div>
+                            <div class="ps-row-title">${escapeHtml(authorDisplay)}</div>
+                            <div class="ps-row-meta">${escapeHtml(r.role)}</div>
+                          </div>
+                        </div>
+                        <div class="ps-row-actions">
+                          ${actions}
+                        </div>
+                      </div>
+                    `;
+                }).join('');
+            }
+            html += `</section>`;
 
             container.innerHTML = html;
             this.notifyInboxChanged();
@@ -485,22 +532,27 @@ export default class ProjectSettings {
                 return JSON.stringify(payload);
             };
 
-            let html = `<h3 style="margin-bottom: var(--space-lg);">Moderation Controls</h3>`;
+            let html = `
+              <div class="ps-pane-header">
+                <h3>Review</h3>
+                <p>Approve community suggestions and handle restricted users in one place.</p>
+              </div>
+            `;
 
             html += `
-        <div style="margin-bottom: var(--space-xl);">
-          <h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm);">Pending Submissions</h4>
-          <div style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-md);">
-            Review and publish community suggestions.
+        <section class="ps-section">
+          <div class="ps-section-heading">
+            <h4>Pending Suggestions</h4>
+            <p>Review and publish community submissions.</p>
           </div>
       `;
 
             if (pendingSubs.length === 0) {
-                html += `<div style="color: var(--text-muted); padding: var(--space-md); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm);">No pending submissions.</div>`;
+                html += `<div class="ps-empty">No suggestions are waiting for review.</div>`;
             } else {
                 pendingSubs.forEach(sub => {
                     html += `
-            <div style="border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: var(--space-md); margin-bottom: var(--space-sm); background: var(--bg-surface);">
+            <div class="ps-card">
               <div style="display:flex; justify-content:space-between; gap: var(--space-sm); align-items:flex-start;">
                 <div>
                   <div style="font-size: var(--text-xs); color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em;">${escapeHtml(formatSubmissionType(sub.submissionType))}</div>
@@ -518,11 +570,14 @@ export default class ProjectSettings {
           `;
                 });
             }
-            html += `</div>`;
+            html += `</section>`;
 
             html += `
-        <div style="margin-bottom: var(--space-xl); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
-          <h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm);">Recent Decisions</h4>
+        <section class="ps-section">
+          <div class="ps-section-heading">
+            <h4>Recent Decisions</h4>
+            <p>A quick look at the latest approvals and rejections.</p>
+          </div>
       `;
             if (recentReviewed.length === 0) {
                 html += `<div style="color: var(--text-muted); font-size: var(--text-xs);">No reviewed submissions yet.</div>`;
@@ -539,11 +594,16 @@ export default class ProjectSettings {
                 });
                 html += `</ul>`;
             }
-            html += `</div>`;
+            html += `</section>`;
 
             html += `
-        <div style="margin-bottom: var(--space-xl); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">
-          <h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm);">Ban an active collaborator</h4>
+        <section class="ps-section">
+          <div class="ps-section-heading">
+            <h4>Restricted Users</h4>
+            <p>Ban active collaborators when needed, or restore access for blocked users.</p>
+          </div>
+          <div style="margin-bottom: var(--space-lg);">
+            <h5 style="font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: var(--space-sm);">Ban an active collaborator</h5>
           <div style="display: flex; gap: var(--space-sm);">
             <select id="mod-ban-select" class="form-select" style="flex: 1;">
               <option value="">Select a user...</option>
@@ -554,10 +614,10 @@ export default class ProjectSettings {
             </select>
             <button id="mod-ban-btn" class="btn btn-danger">Ban</button>
           </div>
-        </div>
+          </div>
       `;
 
-            html += `<h4 style="font-size: var(--text-sm); margin-bottom: var(--space-sm); border-top: 1px solid var(--glass-border); padding-top: var(--space-md);">Banned Users</h4>`;
+            html += `<h5 style="font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: var(--space-sm);">Banned Users</h5>`;
             html += `<ul style="list-style: none; padding: 0; margin: 0;">`;
 
             if (bannedRoles.length === 0) {
@@ -574,9 +634,10 @@ export default class ProjectSettings {
               <button class="btn btn-sm btn-danger mod-wipe" data-userid="${escapeAttr(r.user_id)}" title="Permanently delete all their comments and map entries">Wipe Contributions</button>
             </div>
           </li>
-        `;
+                `;
             });
             html += `</ul>`;
+            html += `</section>`;
 
             container.innerHTML = html;
             this.notifyInboxChanged();
@@ -680,7 +741,10 @@ export default class ProjectSettings {
 
     renderDangerTab(container) {
         container.innerHTML = `
-      <h3 style="margin-bottom: var(--space-lg); color: var(--danger);">Danger Zone</h3>
+      <div class="ps-pane-header">
+        <h3 style="color: var(--danger);">Danger Zone</h3>
+        <p>Permanent actions live here. Double-check before continuing.</p>
+      </div>
       
       <div style="border: 1px solid var(--danger); border-radius: var(--radius-md); padding: var(--space-lg); background: rgba(239, 68, 68, 0.05);">
         <h4 style="margin-bottom: var(--space-sm);">Delete Project</h4>

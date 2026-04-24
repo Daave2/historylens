@@ -785,6 +785,30 @@ export async function getTimeEntriesForPlace(placeId) {
     return data.map(mapEntry);
 }
 
+export async function getTimeEntriesForPlaces(placeIds = []) {
+    const uniqueIds = [...new Set((placeIds || []).filter(Boolean))];
+    if (uniqueIds.length === 0) return {};
+
+    const { data, error } = await supabase
+        .from('time_entries')
+        .select('*')
+        .in('place_id', uniqueIds)
+        .order('year_start', { ascending: true });
+
+    if (error) {
+        console.error(error);
+        return Object.fromEntries(uniqueIds.map(id => [id, []]));
+    }
+
+    const grouped = Object.fromEntries(uniqueIds.map(id => [id, []]));
+    (data || []).forEach((row) => {
+        const entry = mapEntry(row);
+        if (!grouped[entry.placeId]) grouped[entry.placeId] = [];
+        grouped[entry.placeId].push(entry);
+    });
+    return grouped;
+}
+
 export async function getBestEntryForYear(placeId, year) {
     const entries = await getTimeEntriesForPlace(placeId);
     if (entries.length === 0) return { entry: null, type: 'none' };

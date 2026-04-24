@@ -80,7 +80,7 @@ export default class HoverCard {
             const entries = await getTimeEntriesForPlace(place.id);
             if (entries.length === 0) {
                 this.periodEl.textContent = 'No records';
-                this.summaryEl.textContent = 'No historical information yet. Click to add research.';
+                this.summaryEl.textContent = 'No historical information has been added yet. Click for the full place view.';
             }
         }
 
