@@ -1,8 +1,13 @@
 import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getModerationSubmissions, reviewModerationSubmission, getProfiles, getProjectInboxCounts } from '../data/store.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
+import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
 
 export default class ProjectSettings {
     constructor() {
+        this.moderationFilters = {
+            status: 'pending',
+            type: 'all'
+        };
         this.createDom();
     }
 
@@ -498,56 +503,75 @@ export default class ProjectSettings {
             ]);
             const bannedRoles = roles.filter(r => r.role === 'banned');
             const bannableRoles = roles.filter(r => r.role !== 'owner' && r.role !== 'banned');
-            const pendingSubs = submissions.filter(s => s.status === 'pending');
             const recentReviewed = submissions.filter(s => s.status !== 'pending').slice(0, 10);
-            const submitterIds = [...new Set(submissions.map(s => s.submitterId).filter(Boolean))];
-            const submitterMap = await getProfiles(submitterIds);
+            const filters = this.moderationFilters || { status: 'pending', type: 'all' };
+            const profileIds = [...new Set([
+                ...submissions.map(s => s.submitterId),
+                ...submissions.map(s => s.reviewedBy)
+            ].filter(Boolean))];
+            const profileMap = await getProfiles(profileIds);
 
-            const displaySubmitter = (userId) => {
-                const profile = submitterMap[userId];
+            const displayProfile = (userId) => {
+                const profile = profileMap[userId];
                 if (!profile) return 'Unknown user';
                 return profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Unknown user');
             };
 
-            const formatSubmissionType = (type) => {
-                if (type === 'place_create') return 'New Place';
-                if (type === 'entry_create') return 'Timeline Entry';
-                if (type === 'place_move') return 'Location Correction';
-                if (type === 'place_name_alias') return 'Historical Name';
-                return type;
-            };
+            const countForStatus = (status) => submissions.filter(s => s.status === status).length;
+            const filteredSubmissions = submissions.filter((submission) => {
+                const statusMatch = filters.status === 'all' || submission.status === filters.status;
+                const typeMatch = filters.type === 'all' || submission.submissionType === filters.type;
+                return statusMatch && typeMatch;
+            });
 
-            const formatSubmissionSummary = (submission) => {
-                const payload = submission.payload || {};
-                if (submission.submissionType === 'place_create') {
-                    const name = payload.name || 'Unnamed place';
-                    return `${name} at ${Number(payload.lat).toFixed(5)}, ${Number(payload.lng).toFixed(5)}`;
-                }
-                if (submission.submissionType === 'entry_create') {
-                    const title = payload.title || 'Untitled';
-                    const year = payload.yearStart ? ` (${payload.yearStart})` : '';
-                    return `${title}${year}`;
-                }
-                if (submission.submissionType === 'place_move') {
-                    const fromLat = Number(payload.fromLat);
-                    const fromLng = Number(payload.fromLng);
-                    const toLat = Number(payload.lat);
-                    const toLng = Number(payload.lng);
-                    const base = `${toLat.toFixed(5)}, ${toLng.toFixed(5)}`;
-                    if (Number.isFinite(fromLat) && Number.isFinite(fromLng) && Number.isFinite(toLat) && Number.isFinite(toLng)) {
-                        const delta = haversineDistanceMeters(fromLat, fromLng, toLat, toLng);
-                        return `Move to ${base} (${delta.toFixed(0)}m from current)`;
-                    }
-                    return `Move to ${base}`;
-                }
-                if (submission.submissionType === 'place_name_alias') {
-                    const alias = payload.alias || 'Unnamed alias';
-                    const start = payload.startYear ? `from ${payload.startYear}` : '';
-                    const end = payload.endYear ? `until ${payload.endYear}` : '';
-                    const when = [start, end].filter(Boolean).join(' ');
-                    return when ? `${alias} (${when})` : alias;
-                }
-                return JSON.stringify(payload);
+            const statusOption = (value, label, count = null) => `
+              <option value="${escapeAttr(value)}" ${filters.status === value ? 'selected' : ''}>
+                ${escapeHtml(count === null ? label : `${label} (${count})`)}
+              </option>
+            `;
+            const typeOption = (value, label) => `
+              <option value="${escapeAttr(value)}" ${filters.type === value ? 'selected' : ''}>${escapeHtml(label)}</option>
+            `;
+
+            const renderSubmissionCard = (sub) => {
+                const isPending = sub.status === 'pending';
+                const reviewedMeta = sub.status !== 'pending'
+                    ? `
+                      <div class="ps-submission-review-meta">
+                        ${escapeHtml(formatModerationStatusLabel(sub.status))}
+                        ${sub.reviewedAt ? ` · ${escapeHtml(new Date(sub.reviewedAt).toLocaleString())}` : ''}
+                        ${sub.reviewedBy ? ` · ${escapeHtml(displayProfile(sub.reviewedBy))}` : ''}
+                      </div>
+                    `
+                    : '';
+                const reviewerNote = sub.reviewerNote
+                    ? `<div class="ps-submission-note"><strong>Reviewer note</strong><span>${escapeHtml(sub.reviewerNote)}</span></div>`
+                    : '';
+                const actions = isPending
+                    ? `
+                      <div class="ps-submission-actions">
+                        <button class="btn btn-sm btn-primary mod-sub-approve" data-id="${escapeAttr(sub.id)}">Approve</button>
+                        <button class="btn btn-sm btn-danger mod-sub-reject" data-id="${escapeAttr(sub.id)}">Reject</button>
+                      </div>
+                    `
+                    : `<span class="ps-status-pill" data-status="${escapeAttr(sub.status)}">${escapeHtml(formatModerationStatusLabel(sub.status))}</span>`;
+
+                return `
+                  <div class="ps-card ps-submission-card" data-status="${escapeAttr(sub.status)}">
+                    <div class="ps-submission-layout">
+                      <div class="ps-submission-main">
+                        <div class="ps-submission-type">${escapeHtml(formatModerationSubmissionType(sub.submissionType))}</div>
+                        <div class="ps-submission-summary">${escapeHtml(formatModerationSubmissionSummary(sub))}</div>
+                        <div class="ps-submission-meta">
+                          by ${escapeHtml(displayProfile(sub.submitterId))} · ${escapeHtml(new Date(sub.createdAt).toLocaleString())}
+                        </div>
+                        ${reviewedMeta}
+                        ${reviewerNote}
+                      </div>
+                      ${actions}
+                    </div>
+                  </div>
+                `;
             };
 
             let html = `
@@ -560,33 +584,36 @@ export default class ProjectSettings {
             html += `
         <section class="ps-section">
           <div class="ps-section-heading">
-            <h4>Pending Suggestions</h4>
-            <p>Review and publish community submissions.</p>
+            <h4>Suggestion Queue</h4>
+            <p>Review community submissions by status and type.</p>
+          </div>
+          <div class="ps-filter-row">
+            <label class="ps-filter-field">
+              <span>Status</span>
+              <select class="form-select mod-filter-status">
+                ${statusOption('pending', 'Pending', countForStatus('pending'))}
+                ${statusOption('approved', 'Approved', countForStatus('approved'))}
+                ${statusOption('rejected', 'Declined', countForStatus('rejected'))}
+                ${statusOption('all', 'All', submissions.length)}
+              </select>
+            </label>
+            <label class="ps-filter-field">
+              <span>Type</span>
+              <select class="form-select mod-filter-type">
+                ${typeOption('all', 'All Types')}
+                ${typeOption('place_create', 'New Place')}
+                ${typeOption('entry_create', 'Timeline Entry')}
+                ${typeOption('place_move', 'Location Correction')}
+                ${typeOption('place_name_alias', 'Historical Name')}
+              </select>
+            </label>
           </div>
       `;
 
-            if (pendingSubs.length === 0) {
-                html += `<div class="ps-empty">No suggestions are waiting for review.</div>`;
+            if (filteredSubmissions.length === 0) {
+                html += `<div class="ps-empty">No suggestions match these filters.</div>`;
             } else {
-                pendingSubs.forEach(sub => {
-                    html += `
-            <div class="ps-card">
-              <div style="display:flex; justify-content:space-between; gap: var(--space-sm); align-items:flex-start;">
-                <div>
-                  <div style="font-size: var(--text-xs); color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em;">${escapeHtml(formatSubmissionType(sub.submissionType))}</div>
-                  <div style="font-size: var(--text-sm); color: var(--text-primary); margin-top: 2px;">${escapeHtml(formatSubmissionSummary(sub))}</div>
-                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                    by ${escapeHtml(displaySubmitter(sub.submitterId))} · ${new Date(sub.createdAt).toLocaleString()}
-                  </div>
-                </div>
-                <div style="display:flex; gap: var(--space-xs);">
-                  <button class="btn btn-sm btn-primary mod-sub-approve" data-id="${escapeAttr(sub.id)}">Approve</button>
-                  <button class="btn btn-sm btn-danger mod-sub-reject" data-id="${escapeAttr(sub.id)}">Reject</button>
-                </div>
-              </div>
-            </div>
-          `;
-                });
+                html += filteredSubmissions.map(renderSubmissionCard).join('');
             }
             html += `</section>`;
 
@@ -605,8 +632,8 @@ export default class ProjectSettings {
                     html += `
             <li style="padding: 6px 0; border-bottom: 1px solid var(--bg-hover); font-size: 12px; color: var(--text-secondary);">
               <strong style="color:${sub.status === 'approved' ? 'var(--success)' : 'var(--danger)'};">${escapeHtml(sub.status.toUpperCase())}</strong>
-              · ${escapeHtml(formatSubmissionType(sub.submissionType))}
-              · ${escapeHtml(displaySubmitter(sub.submitterId))}
+              · ${escapeHtml(formatModerationSubmissionType(sub.submissionType))}
+              · ${escapeHtml(displayProfile(sub.submitterId))}
             </li>
           `;
                 });
@@ -659,6 +686,22 @@ export default class ProjectSettings {
 
             container.innerHTML = html;
             this.notifyInboxChanged();
+
+            container.querySelector('.mod-filter-status')?.addEventListener('change', (event) => {
+                this.moderationFilters = {
+                    ...this.moderationFilters,
+                    status: event.target.value || 'pending'
+                };
+                this.renderModerationTab(container);
+            });
+
+            container.querySelector('.mod-filter-type')?.addEventListener('change', (event) => {
+                this.moderationFilters = {
+                    ...this.moderationFilters,
+                    type: event.target.value || 'all'
+                };
+                this.renderModerationTab(container);
+            });
 
             container.querySelectorAll('.mod-sub-approve').forEach(btn => {
                 btn.addEventListener('click', async () => {
@@ -806,15 +849,4 @@ export default class ProjectSettings {
             }
         });
     }
-}
-
-function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
-    const toRad = (v) => (v * Math.PI) / 180;
-    const earthRadius = 6371000;
-    const dLat = toRad(lat2 - lat1);
-    const dLng = toRad(lng2 - lng1);
-    const a = Math.sin(dLat / 2) ** 2
-        + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return earthRadius * c;
 }

@@ -10,10 +10,8 @@ import {
   addImage,
   createOverviewRevision,
   getPlace,
-  getBestEntryForYear,
   getTimeEntriesForPlace,
   updatePlace,
-  getPlacesByProject,
   getSession,
   signOut,
   onAuthStateChange,
@@ -642,10 +640,9 @@ async function initProjectView(project) {
     onYearChange: (year) => {
       selectedYear = year;
       // Refresh marker opacities based on data availability
-      updateMarkerStates(mapView, project.id, year);
+      updateMarkerStates(mapView, sidebar?.places || [], sidebar?.entriesByPlaceId || {}, year);
     }
   });
-  await timeSlider.setRange(project.id);
 
   const startAddPlaceFlow = () => {
     if (!permissions.canSubmit) return false;
@@ -714,7 +711,7 @@ async function initProjectView(project) {
               note: suggestion.note || ''
             });
             await sidebar.loadPlaces(project.id);
-            const refreshed = await getPlace(place.id);
+            const refreshed = sidebar.places.find((candidate) => candidate.id === place.id) || await getPlace(place.id);
             if (refreshed) await showPlaceDetail(refreshed, 'names');
             showToast('Historical name added', 'success');
             return;
@@ -804,12 +801,15 @@ async function initProjectView(project) {
             await regeneratePlaceOverview(place.id, { force: false });
 
             await sidebar.loadPlaces(project.id);
+            syncMarkers(mapView, sidebar.places);
             sidebar.setActive(place.id);
             mapView.panTo(place.lat, place.lng);
-            await timeSlider.setRange(project.id);
+            await syncTimeSliderRange(timeSlider, project.id, sidebar.entriesByPlaceId);
+            updateMarkerStates(mapView, sidebar.places, sidebar.entriesByPlaceId, selectedYear);
             const entryCount = autoEntries?.length || 0;
+            const refreshedPlace = sidebar.places.find((candidate) => candidate.id === place.id) || place;
             showToast(`"${name}" added${entryCount > 0 ? ` with ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}` : ''}`, 'success');
-            await showPlaceDetail(place, 'timeline');
+            await showPlaceDetail(refreshedPlace, 'timeline');
             return;
           }
 
@@ -925,11 +925,12 @@ async function initProjectView(project) {
             }
           }
 
-          await timeSlider.setRange(project.id);
           await sidebar.loadPlaces(project.id);
+          await syncTimeSliderRange(timeSlider, project.id, sidebar.entriesByPlaceId);
+          updateMarkerStates(mapView, sidebar.places, sidebar.entriesByPlaceId, selectedYear);
 
           // Refresh detail if open
-          const place = await getPlacesByProject(project.id).then(places => places.find(p => p.id === data.placeId));
+          const place = sidebar.places.find((candidate) => candidate.id === data.placeId);
           if (place) {
             await showPlaceDetail(place, activeTabForEntrySave(data));
           }
@@ -951,14 +952,24 @@ async function initProjectView(project) {
     },
     onFilterChange: (visibleIds) => {
       currentVisiblePlaceIds = new Set(visibleIds);
-      updateMarkerStates(mapView, project.id, selectedYear);
+      updateMarkerStates(mapView, sidebar.places, sidebar.entriesByPlaceId, selectedYear);
     },
     onAddPlace: () => startAddPlaceFlow(),
     onImport: async () => {
       try {
         const data = await readFileAsJSON();
-        const result = await importBundle(data);
-        showToast(`Imported ${result.placesImported} places and ${result.entriesImported} entries`, 'success');
+        const result = await importBundle(data, { targetProjectId: project.id });
+        const importSummary = [
+          `${result.placesImported} place${result.placesImported === 1 ? '' : 's'}`,
+          `${result.entriesImported} entr${result.entriesImported === 1 ? 'y' : 'ies'}`
+        ];
+        if (result.aliasesImported) {
+          importSummary.push(`${result.aliasesImported} historic name${result.aliasesImported === 1 ? '' : 's'}`);
+        }
+        if (result.imagesImported) {
+          importSummary.push(`${result.imagesImported} image${result.imagesImported === 1 ? '' : 's'}`);
+        }
+        showToast(`Imported ${importSummary.join(', ')}`, 'success');
         await refreshAll(mapView, sidebar, timeSlider);
       } catch (err) {
         showToast('Import failed: ' + err.message, 'error');
@@ -1095,9 +1106,9 @@ async function initProjectView(project) {
   }
 
   // Load markers and initial rendering
-  await loadMarkers(mapView, project.id);
-  await timeSlider.setRange(project.id);
-  updateMarkerStates(mapView, project.id, selectedYear);
+  syncMarkers(mapView, sidebar.places);
+  await syncTimeSliderRange(timeSlider, project.id, sidebar.entriesByPlaceId);
+  updateMarkerStates(mapView, sidebar.places, sidebar.entriesByPlaceId, selectedYear);
 
   // Set the global for the helpers to reference if we don't pass project.id directly
   currentProject = project;
@@ -1105,16 +1116,23 @@ async function initProjectView(project) {
 
 // ── Helpers ─────────────────────────────────────────────────
 
-async function loadMarkers(mapView, projectId) {
-  const places = await getPlacesByProject(projectId);
-  mapView.clearMarkers();
-  for (const place of places) {
-    mapView.addMarker(place);
-  }
+function syncMarkers(mapView, places = []) {
+  mapView.syncMarkers(places);
 }
 
-async function updateMarkerStates(mapView, projectId, year) {
-  const places = await getPlacesByProject(projectId);
+function getEntryStateForYear(entries = [], year) {
+  if (!entries.length) return 'none';
+
+  const exact = entries.find((entry) => entry.yearStart <= year && (entry.yearEnd === null || entry.yearEnd >= year));
+  if (exact) return 'exact';
+
+  const hasEarlierEntry = entries.some((entry) => entry.yearStart <= year);
+  if (hasEarlierEntry) return 'last_known';
+
+  return 'before_known';
+}
+
+function updateMarkerStates(mapView, places = [], entriesByPlaceId = {}, year) {
   for (const place of places) {
     if (currentVisiblePlaceIds && !currentVisiblePlaceIds.has(place.id)) {
       mapView.setMarkerVisible(place.id, false);
@@ -1123,11 +1141,11 @@ async function updateMarkerStates(mapView, projectId, year) {
 
     mapView.setMarkerVisible(place.id, true);
 
-    const result = await getBestEntryForYear(place.id, year);
+    const resultType = getEntryStateForYear(entriesByPlaceId[place.id] || [], year);
     // Dim markers that have no data for this year
-    if (result.type === 'none') {
+    if (resultType === 'none') {
       mapView.setMarkerOpacity(place.id, 0.4);
-    } else if (result.type === 'before_known' || result.type === 'last_known') {
+    } else if (resultType === 'before_known' || resultType === 'last_known') {
       mapView.setMarkerOpacity(place.id, 0.65);
     } else {
       mapView.setMarkerOpacity(place.id, 1);
@@ -1135,10 +1153,16 @@ async function updateMarkerStates(mapView, projectId, year) {
   }
 }
 
+async function syncTimeSliderRange(timeSlider, projectId, entriesByPlaceId = null) {
+  await timeSlider.setRange(projectId, { entriesByPlaceId });
+  selectedYear = timeSlider.getYear();
+}
+
 async function refreshAll(mapView, sidebar, timeSlider) {
-  await loadMarkers(mapView, currentProject.id);
   await sidebar.loadPlaces(currentProject.id);
-  await timeSlider.setRange(currentProject.id);
+  syncMarkers(mapView, sidebar.places);
+  await syncTimeSliderRange(timeSlider, currentProject.id, sidebar.entriesByPlaceId);
+  updateMarkerStates(mapView, sidebar.places, sidebar.entriesByPlaceId, selectedYear);
 }
 
 function spotlightElement(element, durationMs = 1200) {

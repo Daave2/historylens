@@ -1,18 +1,5 @@
--- phase12_comments.sql
--- Create the comments table and its RLS policies
-
-CREATE TABLE IF NOT EXISTS public.comments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    place_id UUID NOT NULL REFERENCES public.places(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    content TEXT NOT NULL CHECK (char_length(trim(content)) > 0),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Note: We map `user_id` to auth.users, but we fetch display info from public.profiles via store.js
-
--- Enable RLS
-ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
+-- phase23_comment_policy_alignment.sql
+-- Align Talk comment permissions with the current collaboration UX.
 
 DROP POLICY IF EXISTS "Anyone can view comments" ON public.comments;
 DROP POLICY IF EXISTS "Authenticated users can create comments" ON public.comments;
@@ -21,7 +8,6 @@ DROP POLICY IF EXISTS "Read comments" ON public.comments;
 DROP POLICY IF EXISTS "Create comments" ON public.comments;
 DROP POLICY IF EXISTS "Delete own comments" ON public.comments;
 
--- 1. Read comments only when the parent place is visible to the current user.
 CREATE POLICY "Read comments"
 ON public.comments FOR SELECT
 USING (
@@ -37,7 +23,6 @@ USING (
   )
 );
 
--- 2. Only project owners, editors, admins, or pending contributors can post on Talk.
 CREATE POLICY "Create comments"
 ON public.comments FOR INSERT
 TO authenticated
@@ -54,7 +39,6 @@ WITH CHECK (
   )
 );
 
--- 3. Users can delete their own comments while they still have access to the place.
 CREATE POLICY "Delete own comments"
 ON public.comments FOR DELETE
 TO authenticated
@@ -71,6 +55,3 @@ USING (
       )
   )
 );
-
--- Create an index to speed up fetching comments for a specific place
-CREATE INDEX IF NOT EXISTS idx_comments_place_id ON public.comments(place_id);

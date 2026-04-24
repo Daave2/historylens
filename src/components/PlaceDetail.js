@@ -498,7 +498,7 @@ export default class PlaceDetail {
     } else {
       const readOnlyMessage = currentUserRole === 'banned'
         ? 'Talk is read-only for this account.'
-        : 'Request edit access to post on Talk.';
+        : 'Request access to post on Talk.';
       commentsInnerHtml += `
         <div style="margin-top: var(--space-xl); text-align: center; font-size: var(--text-sm); color: var(--text-muted);">
           <p>${escapeHtml(readOnlyMessage)}</p>

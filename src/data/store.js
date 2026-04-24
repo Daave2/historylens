@@ -196,6 +196,54 @@ function scoreImageForYear(image, year, voteScore = 0) {
     return (voteScore * 1.7) + imageQualityScore(image) + temporalWeight;
 }
 
+function collectPlaceTimelineImages(entries = [], imagesByEntryId = {}) {
+    const allImages = [];
+    for (const entry of entries) {
+        const images = imagesByEntryId[entry.id] || [];
+        for (const image of images) {
+            if (image.moderationStatus !== 'approved') continue;
+            allImages.push({
+                ...image,
+                entryYearStart: entry.yearStart,
+                effectiveYear: image.yearTaken || entry.yearStart
+            });
+        }
+    }
+    return allImages;
+}
+
+function pickPrimaryPlaceImage(place, allImages, voteMap = {}) {
+    if (allImages.length === 0) return null;
+
+    if (place?.pinnedImageId) {
+        const pinned = allImages.find((image) => image.id === place.pinnedImageId);
+        if (pinned) return { ...pinned, isPinned: true };
+    }
+
+    allImages.sort((a, b) => {
+        const aScore = (voteMap[a.id]?.score || 0) * 1.8 + imageQualityScore(a);
+        const bScore = (voteMap[b.id]?.score || 0) * 1.8 + imageQualityScore(b);
+        return bScore - aScore;
+    });
+    return { ...allImages[0], isPinned: false };
+}
+
+function pickBestImageForYear(place, allImages, voteMap = {}, year) {
+    if (allImages.length === 0) return null;
+
+    if (place?.pinnedImageId) {
+        const pinned = allImages.find((image) => image.id === place.pinnedImageId);
+        if (pinned) return { ...pinned, isPinned: true };
+    }
+
+    allImages.sort((a, b) => {
+        const aScore = scoreImageForYear(a, year, voteMap[a.id]?.score || 0);
+        const bScore = scoreImageForYear(b, year, voteMap[b.id]?.score || 0);
+        return bScore - aScore;
+    });
+    return { ...allImages[0], isPinned: false };
+}
+
 async function getAliasesForPlaceIds(placeIds) {
     const ids = [...new Set((placeIds || []).filter(Boolean))];
     const aliasMap = {};
@@ -525,6 +573,31 @@ export async function getModerationSubmissions(projectId, { limit = 100, statuse
         .from('moderation_submissions')
         .select('*')
         .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (Array.isArray(statuses) && statuses.length > 0) {
+        query = query.in('status', statuses);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        throw error;
+    }
+    return (data || []).map(mapSubmission);
+}
+
+export async function getMyModerationSubmissions(projectId, { limit = 20, statuses = [] } = {}) {
+    const session = await getSession();
+    if (!session) return [];
+
+    let query = supabase
+        .from('moderation_submissions')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('submitter_id', session.user.id)
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -887,9 +960,10 @@ export async function getProjectYearRange(projectId) {
     const places = await getPlacesByProject(projectId);
     if (places.length === 0) return { min: 1800, max: new Date().getFullYear() };
 
+    const entriesByPlaceId = await getTimeEntriesForPlaces(places.map((place) => place.id));
     let min = Infinity, max = -Infinity;
     for (const p of places) {
-        const entries = await getTimeEntriesForPlace(p.id);
+        const entries = entriesByPlaceId[p.id] || [];
         for (const e of entries) {
             if (e.yearStart < min) min = e.yearStart;
             const end = e.yearEnd || e.yearStart;
@@ -937,13 +1011,29 @@ export async function addImage({ timeEntryId, blob, caption, yearTaken, credit, 
 }
 
 export async function getImagesForEntry(timeEntryId, { includeUnapproved = false } = {}) {
-    const { data, error } = await supabase.from('images').select('*').eq('time_entry_id', timeEntryId);
-    if (error) { console.error(error); return []; }
+    const grouped = await getImagesForEntries([timeEntryId], { includeUnapproved });
+    return grouped[timeEntryId] || [];
+}
 
-    return (data || []).map(img => {
+export async function getImagesForEntries(timeEntryIds = [], { includeUnapproved = false } = {}) {
+    const ids = [...new Set((timeEntryIds || []).filter(Boolean))];
+    if (ids.length === 0) return {};
+
+    const { data, error } = await supabase
+        .from('images')
+        .select('*')
+        .in('time_entry_id', ids);
+    if (error) { console.error(error); return Object.fromEntries(ids.map((id) => [id, []])); }
+
+    const grouped = Object.fromEntries(ids.map((id) => [id, []]));
+    (data || []).forEach((img) => {
         const mapped = mapImage(img);
-        return { ...mapped, publicUrl: getImageUrl(mapped.storagePath) };
-    }).filter(img => includeUnapproved || img.moderationStatus === 'approved');
+        const withUrl = { ...mapped, publicUrl: getImageUrl(mapped.storagePath) };
+        if (!includeUnapproved && withUrl.moderationStatus !== 'approved') return;
+        if (!grouped[withUrl.timeEntryId]) grouped[withUrl.timeEntryId] = [];
+        grouped[withUrl.timeEntryId].push(withUrl);
+    });
+    return grouped;
 }
 
 export async function deleteImage(id) {
@@ -1023,57 +1113,54 @@ export async function voteImage(imageId, projectId, vote) {
 }
 
 export async function getPrimaryPlaceImage(placeId) {
-    const entries = await getTimeEntriesForPlace(placeId);
-    const allImages = [];
-    for (const e of entries) {
-        const images = await getImagesForEntry(e.id);
-        for (const img of images) {
-            if (img.moderationStatus !== 'approved') continue;
-            allImages.push({ ...img, entryYearStart: e.yearStart, effectiveYear: img.yearTaken || e.yearStart });
-        }
-    }
-    if (allImages.length === 0) return null;
-
     const place = await getPlace(placeId);
-    if (place?.pinnedImageId) {
-        const pinned = allImages.find(img => img.id === place.pinnedImageId);
-        if (pinned) return { ...pinned, isPinned: true };
+    if (!place) return null;
+
+    const entriesByPlace = await getTimeEntriesForPlaces([placeId]);
+    const entries = entriesByPlace[placeId] || [];
+    const imagesByEntryId = await getImagesForEntries(entries.map((entry) => entry.id));
+    const allImages = collectPlaceTimelineImages(entries, imagesByEntryId);
+    const voteMap = await getImageVoteSummary(allImages.map((image) => image.id));
+    return pickPrimaryPlaceImage(place, allImages, voteMap);
+}
+
+export async function getPrimaryPlaceImages(places = [], { entriesByPlaceId = null } = {}) {
+    const normalizedPlaces = (places || []).filter(Boolean);
+    if (normalizedPlaces.length === 0) return {};
+
+    const placeIds = normalizedPlaces.map((place) => place.id).filter(Boolean);
+    const byPlaceId = Object.fromEntries(placeIds.map((id) => [id, null]));
+    const resolvedEntriesByPlaceId = entriesByPlaceId || await getTimeEntriesForPlaces(placeIds);
+    const entryIds = [...new Set(
+        placeIds.flatMap((placeId) => (resolvedEntriesByPlaceId[placeId] || []).map((entry) => entry.id))
+    )];
+
+    if (entryIds.length === 0) return byPlaceId;
+
+    const imagesByEntryId = await getImagesForEntries(entryIds);
+    const voteMap = await getImageVoteSummary(
+        entryIds.flatMap((entryId) => (imagesByEntryId[entryId] || []).map((image) => image.id))
+    );
+
+    for (const place of normalizedPlaces) {
+        const entries = resolvedEntriesByPlaceId[place.id] || [];
+        const allImages = collectPlaceTimelineImages(entries, imagesByEntryId);
+        byPlaceId[place.id] = pickPrimaryPlaceImage(place, allImages, voteMap);
     }
 
-    const voteMap = await getImageVoteSummary(allImages.map(img => img.id));
-    allImages.sort((a, b) => {
-        const aScore = (voteMap[a.id]?.score || 0) * 1.8 + imageQualityScore(a);
-        const bScore = (voteMap[b.id]?.score || 0) * 1.8 + imageQualityScore(b);
-        return bScore - aScore;
-    });
-    return { ...allImages[0], isPinned: false };
+    return byPlaceId;
 }
 
 export async function getBestImageForYear(placeId, year) {
-    const entries = await getTimeEntriesForPlace(placeId);
-    const allImages = [];
-    for (const e of entries) {
-        const images = await getImagesForEntry(e.id);
-        for (const img of images) {
-            if (img.moderationStatus !== 'approved') continue;
-            allImages.push({ ...img, entryYearStart: e.yearStart, effectiveYear: img.yearTaken || e.yearStart });
-        }
-    }
-    if (allImages.length === 0) return null;
-
     const place = await getPlace(placeId);
-    if (place?.pinnedImageId) {
-        const pinned = allImages.find(img => img.id === place.pinnedImageId);
-        if (pinned) return { ...pinned, isPinned: true };
-    }
+    if (!place) return null;
 
-    const voteMap = await getImageVoteSummary(allImages.map(img => img.id));
-    allImages.sort((a, b) => {
-        const aScore = scoreImageForYear(a, year, voteMap[a.id]?.score || 0);
-        const bScore = scoreImageForYear(b, year, voteMap[b.id]?.score || 0);
-        return bScore - aScore;
-    });
-    return { ...allImages[0], isPinned: false };
+    const entriesByPlace = await getTimeEntriesForPlaces([placeId]);
+    const entries = entriesByPlace[placeId] || [];
+    const imagesByEntryId = await getImagesForEntries(entries.map((entry) => entry.id));
+    const allImages = collectPlaceTimelineImages(entries, imagesByEntryId);
+    const voteMap = await getImageVoteSummary(allImages.map((image) => image.id));
+    return pickBestImageForYear(place, allImages, voteMap, year);
 }
 
 // ── Overview History ───────────────────────────────────────

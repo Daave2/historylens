@@ -1,5 +1,6 @@
-import { getPlacesByProject, getTimeEntriesForPlaces, getPrimaryPlaceImage, getMySubmissionSummary, getProjectInboxCounts } from '../data/store.js';
+import { getPlacesByProject, getTimeEntriesForPlaces, getPrimaryPlaceImages, getMySubmissionSummary, getMyModerationSubmissions, getProfiles, getProjectInboxCounts } from '../data/store.js';
 import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
+import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
 
 export default class Sidebar {
     constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange }) {
@@ -20,10 +21,12 @@ export default class Sidebar {
         this.settingsInboxBadge = document.getElementById('settings-inbox-badge');
         this.collabRequestBtn = document.getElementById('btn-collab-request');
         this.collabStatusEl = document.getElementById('collab-status');
+        this.collabActivityEl = document.getElementById('collab-activity');
         this.currentProjectId = null;
         this.currentUserRole = null;
         this.isSignedIn = false;
         this.inboxRequestToken = 0;
+        this.pendingStatusToken = 0;
 
         this.onPlaceClick = onPlaceClick;
         this.onAddPlace = onAddPlace;
@@ -33,6 +36,7 @@ export default class Sidebar {
         this.onFilterChange = onFilterChange;
         this.places = [];
         this.entriesByPlaceId = {};
+        this.primaryImagesByPlaceId = {};
         this.hasLoadedPlaces = false;
         this.activeId = null;
         this.renderGeneration = 0;
@@ -78,6 +82,7 @@ export default class Sidebar {
         this.currentUserRole = currentUserRole;
         if (!isSameProject) {
             this.hasLoadedPlaces = false;
+            this.primaryImagesByPlaceId = {};
         }
         this.projectNameEl.textContent = project.name;
         this.projectDescEl.textContent = project.description || this.getProjectDescriptionPlaceholder();
@@ -133,16 +138,21 @@ export default class Sidebar {
 
         if (this.collabStatusEl) {
             if (currentUserRole === 'pending') {
-                this.setCollabStatus('Your access request is in review. You can already suggest places, historic names, and timeline entries while you wait.', 'pending');
+                this.setCollabStatus('Your access request is in review. You can already suggest places, historic names, timeline entries, and join Talk while you wait.', 'pending');
+                this.setCollabActivity();
                 this.renderPendingSubmissionSummary(project.id);
             } else if (currentUserRole === 'banned') {
                 this.setCollabStatus('This account currently has read-only access on this map.', 'banned');
+                this.setCollabActivity();
             } else if (currentUserRole === null && this.isSignedIn) {
                 this.setCollabStatus('You are viewing this map in read-only mode. Request access to suggest changes or post on Talk.', 'viewer');
+                this.setCollabActivity();
             } else if (currentUserRole === null) {
                 this.setCollabStatus('Browsing as a guest. Sign in to request access, suggest changes, or post on Talk.', 'guest');
+                this.setCollabActivity();
             } else {
                 this.setCollabStatus();
+                this.setCollabActivity();
             }
         }
 
@@ -161,23 +171,146 @@ export default class Sidebar {
         }
     }
 
+    setCollabActivity(content = '', state = '') {
+        if (!this.collabActivityEl) return;
+        this.collabActivityEl.innerHTML = content;
+        this.collabActivityEl.style.display = content ? 'grid' : 'none';
+        if (state) {
+            this.collabActivityEl.dataset.state = state;
+        } else {
+            delete this.collabActivityEl.dataset.state;
+        }
+    }
+
     async renderPendingSubmissionSummary(projectId) {
+        const token = ++this.pendingStatusToken;
         try {
-            const summary = await getMySubmissionSummary(projectId);
-            if (!this.collabStatusEl || this.currentProjectId !== projectId || this.currentUserRole !== 'pending') return;
+            const [summary, submissions] = await Promise.all([
+                getMySubmissionSummary(projectId),
+                getMyModerationSubmissions(projectId, { limit: 12 })
+            ]);
+            if (!this.collabStatusEl || token !== this.pendingStatusToken || this.currentProjectId !== projectId || this.currentUserRole !== 'pending') return;
 
             const summaryParts = [];
             if (summary.pending > 0) summaryParts.push(`${summary.pending} pending`);
             if (summary.approved > 0) summaryParts.push(`${summary.approved} approved`);
             if (summary.rejected > 0) summaryParts.push(`${summary.rejected} declined`);
 
-            const baseMessage = 'Your access request is in review. You can already suggest places, historic names, and timeline entries while you wait.';
+            const baseMessage = 'Your access request is in review. You can already suggest places, historic names, timeline entries, and join Talk while you wait.';
             this.collabStatusEl.textContent = summaryParts.length > 0
                 ? `${baseMessage} Suggestions so far: ${summaryParts.join(', ')}.`
                 : baseMessage;
+
+            if (!submissions.length) {
+                this.setCollabActivity();
+                return;
+            }
+
+            const reviewerIds = [...new Set(submissions.map((submission) => submission.reviewedBy).filter(Boolean))];
+            const reviewerMap = reviewerIds.length > 0 ? await getProfiles(reviewerIds) : {};
+            if (token !== this.pendingStatusToken || this.currentProjectId !== projectId || this.currentUserRole !== 'pending') return;
+
+            this.renderContributorActivity(submissions, reviewerMap);
         } catch (err) {
             console.warn('Could not load moderation summary:', err);
+            if (token === this.pendingStatusToken) {
+                this.setCollabActivity();
+            }
         }
+    }
+
+    renderContributorActivity(submissions, reviewerMap = {}) {
+        if (!this.collabActivityEl) return;
+
+        const pending = submissions
+            .filter((submission) => submission.status === 'pending')
+            .slice(0, 3);
+        const reviewed = submissions
+            .filter((submission) => submission.status !== 'pending')
+            .sort((a, b) => {
+                const aTime = a.reviewedAt?.getTime?.() || a.createdAt?.getTime?.() || 0;
+                const bTime = b.reviewedAt?.getTime?.() || b.createdAt?.getTime?.() || 0;
+                return bTime - aTime;
+            })
+            .slice(0, 4);
+
+        if (pending.length === 0 && reviewed.length === 0) {
+            this.setCollabActivity();
+            return;
+        }
+
+        const formatPerson = (userId) => {
+            const profile = reviewerMap[userId];
+            if (!profile) return 'a reviewer';
+            return profile.display_name || (profile.email ? profile.email.split('@')[0] : 'a reviewer');
+        };
+
+        const formatDate = (value) => {
+            if (!(value instanceof Date) || Number.isNaN(value.getTime())) return 'recently';
+            return value.toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        };
+
+        const renderSubmissionCard = (submission) => {
+            const statusLabel = formatModerationStatusLabel(submission.status);
+            const meta = submission.status === 'pending'
+                ? `Sent ${formatDate(submission.createdAt)}`
+                : `${statusLabel} ${formatDate(submission.reviewedAt || submission.createdAt)}${submission.reviewedBy ? ` by ${formatPerson(submission.reviewedBy)}` : ''}`;
+            const reviewerNote = submission.reviewerNote
+                ? `
+                  <div class="collab-activity-note">
+                    <span>Reviewer note</span>
+                    <p>${escapeHtml(submission.reviewerNote)}</p>
+                  </div>
+                `
+                : '';
+
+            return `
+              <article class="collab-activity-item" data-status="${escapeAttr(submission.status)}">
+                <div class="collab-activity-item-row">
+                  <div class="collab-activity-type">${escapeHtml(formatModerationSubmissionType(submission.submissionType))}</div>
+                  <span class="collab-activity-badge" data-status="${escapeAttr(submission.status)}">${escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="collab-activity-summary">${escapeHtml(formatModerationSubmissionSummary(submission))}</div>
+                <div class="collab-activity-meta">${escapeHtml(meta)}</div>
+                ${reviewerNote}
+              </article>
+            `;
+        };
+
+        const sections = [];
+        if (reviewed.length > 0) {
+            sections.push(`
+              <section class="collab-activity-section">
+                <div class="collab-activity-section-title">Recent decisions</div>
+                <div class="collab-activity-list">
+                  ${reviewed.map((submission) => renderSubmissionCard(submission)).join('')}
+                </div>
+              </section>
+            `);
+        }
+        if (pending.length > 0) {
+            sections.push(`
+              <section class="collab-activity-section">
+                <div class="collab-activity-section-title">Still in review</div>
+                <div class="collab-activity-list">
+                  ${pending.map((submission) => renderSubmissionCard(submission)).join('')}
+                </div>
+              </section>
+            `);
+        }
+
+        this.setCollabActivity(`
+          <div class="collab-activity-header">
+            <div class="collab-activity-kicker">Contributor Activity</div>
+            <h4>Your suggestions</h4>
+            <p>Recent decisions and reviewer notes show up here while access is still pending.</p>
+          </div>
+          ${sections.join('')}
+        `, 'pending');
     }
 
     async refreshInboxBadge() {
@@ -226,6 +359,7 @@ export default class Sidebar {
     async loadPlaces(projectId) {
         this.places = await getPlacesByProject(projectId);
         this.entriesByPlaceId = await getTimeEntriesForPlaces(this.places.map(place => place.id));
+        this.primaryImagesByPlaceId = await getPrimaryPlaceImages(this.places, { entriesByPlaceId: this.entriesByPlaceId });
         this.hasLoadedPlaces = true;
         this.filterPlaces();
         this.renderGuideCard();
@@ -305,7 +439,7 @@ export default class Sidebar {
 
             const entries = this.entriesByPlaceId[place.id] || [];
             let thumbHtml = '';
-            const primaryImage = await getPrimaryPlaceImage(place.id);
+            const primaryImage = this.primaryImagesByPlaceId[place.id];
             if (primaryImage?.publicUrl) {
                 thumbHtml = `<img src="${escapeAttr(primaryImage.publicUrl)}" class="sidebar-place-img" />`;
             }

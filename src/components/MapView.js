@@ -310,13 +310,13 @@ export default class MapView {
         marker.placeData = place;
 
         marker.on('click', () => {
-            if (this.onMarkerClick) this.onMarkerClick(place);
+            if (this.onMarkerClick) this.onMarkerClick(marker.placeData);
         });
 
         marker.on('mouseover', (e) => {
             if (this.onMarkerHover) {
                 const point = this.map.latLngToContainerPoint(marker.getLatLng());
-                this.onMarkerHover(place, point);
+                this.onMarkerHover(marker.placeData, point);
             }
         });
 
@@ -336,8 +336,36 @@ export default class MapView {
     }
 
     updateMarker(place) {
-        this.removeMarker(place.id);
-        this.addMarker(place);
+        const marker = this.markers.get(place.id);
+        if (!marker) {
+            this.addMarker(place);
+            return;
+        }
+
+        const previous = marker.placeData || {};
+        marker.placeData = place;
+
+        if (previous.lat !== place.lat || previous.lng !== place.lng) {
+            marker.setLatLng([place.lat, place.lng]);
+        }
+
+        if (previous.category !== place.category) {
+            marker.setIcon(this.createMarkerIcon(place.category));
+        }
+    }
+
+    syncMarkers(places = []) {
+        const nextIds = new Set(places.map((place) => place.id));
+
+        this.markers.forEach((_, placeId) => {
+            if (!nextIds.has(placeId)) {
+                this.removeMarker(placeId);
+            }
+        });
+
+        places.forEach((place) => {
+            this.updateMarker(place);
+        });
     }
 
     clearMarkers() {

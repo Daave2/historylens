@@ -15,7 +15,7 @@ HistoryLens is a Vite-based web app for mapping local history as places plus tim
 - Time slider to filter and animate history by year
 - Built-in quick guide/tutorial in dashboard and project sidebar
 - Collaboration roles (`owner`, `admin`, `editor`, `pending`, `banned`) and access requests
-- Place-level discussion comments
+- Place-level discussion comments for contributors and pending collaborators
 - Data export/import utilities (GeoJSON, JSON bundle, CSV)
 - Optional AI-assisted research summarization, speculative context, and image analysis via Supabase Edge Function
 
@@ -34,7 +34,6 @@ HistoryLens is a Vite-based web app for mapping local history as places plus tim
 - Vite
 - Leaflet
 - Supabase (`@supabase/supabase-js`)
-- Dexie (local browser DB helpers)
 - UUID
 
 ## Getting Started
@@ -69,6 +68,23 @@ npm run build
 npm run preview
 ```
 
+### 5. Optional smoke check
+
+```bash
+npm run smoke:geojson
+npm run smoke:moderation
+```
+
+This reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your shell or local `.env` file and reports visible project, place, entry, comment, and historic-name counts.
+
+`npm run smoke:moderation` also uses the anon key, but only runs the authenticated contributor/reviewer workflow when these optional variables are present:
+
+- `HISTORYLENS_SMOKE_OWNER_EMAIL`
+- `HISTORYLENS_SMOKE_OWNER_PASSWORD`
+- `HISTORYLENS_SMOKE_CONTRIBUTOR_EMAIL`
+- `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
+- `HISTORYLENS_SMOKE_PROJECT_ID` (optional; without it, the script creates and deletes a temporary public project)
+
 ## Deploy To Vercel
 
 ### 1. Import repo into Vercel
@@ -97,7 +113,15 @@ In Supabase Dashboard -> Authentication -> URL Configuration:
 
 ## Optional Backend Setup
 
-- Apply database schema in `supabase/schema.sql` to your Supabase project.
+- For a fresh Supabase project, apply SQL in this order:
+  - `supabase/schema.sql`
+  - `supabase/phase12_comments.sql`
+  - `supabase/phase18_moderation.sql`
+  - `supabase/phase20_storage_policy_hardening.sql`
+  - `supabase/phase21_community_workflow.sql`
+  - `supabase/phase22_alias_history.sql`
+  - `supabase/phase23_comment_policy_alignment.sql`
+- The older numbered phase files remain in the repo as historical migrations. For fresh installs, the files above are the current bootstrap path.
 - Deploy `supabase/functions/ai-proxy` and set `OPENAI_API_KEY` as a Supabase secret if using AI features.
 
 ## Repository Structure
@@ -128,3 +152,5 @@ From `package.json`:
 - `npm run dev` - start Vite dev server
 - `npm run build` - build production assets
 - `npm run preview` - preview production build locally
+- `npm run smoke:geojson` - verify core Supabase reads against the current environment
+- `npm run smoke:moderation` - verify authenticated request, submission, review-note, approval, and cleanup flow when smoke credentials are configured

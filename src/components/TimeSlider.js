@@ -1,5 +1,27 @@
 import { getProjectYearRange } from '../data/store.js';
 
+function calculateRangeFromEntries(entriesByPlaceId = {}) {
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const entries of Object.values(entriesByPlaceId || {})) {
+        for (const entry of entries || []) {
+            if (entry.yearStart < min) min = entry.yearStart;
+            const end = entry.yearEnd || entry.yearStart;
+            if (end > max) max = end;
+        }
+    }
+
+    if (min === Infinity) {
+        return { min: 1800, max: new Date().getFullYear() };
+    }
+
+    return {
+        min: Math.max(1800, min - 20),
+        max: Math.max(max + 10, new Date().getFullYear())
+    };
+}
+
 export default class TimeSlider {
     constructor({ onYearChange }) {
         this.slider = document.getElementById('time-slider');
@@ -24,8 +46,10 @@ export default class TimeSlider {
         this.playBtn.addEventListener('click', () => this.togglePlay());
     }
 
-    async setRange(projectId) {
-        const range = await getProjectYearRange(projectId);
+    async setRange(projectId, { entriesByPlaceId = null } = {}) {
+        const range = entriesByPlaceId
+            ? calculateRangeFromEntries(entriesByPlaceId)
+            : await getProjectYearRange(projectId);
         this.slider.min = range.min;
         this.slider.max = range.max;
 

@@ -6,14 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke:geojson": "node test-geojson.js",
+    "smoke:moderation": "node test-moderation-smoke.js"
   },
   "devDependencies": {
     "vite": "^7.3.1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
-    "dexie": "^4.3.0",
     "leaflet": "^1.9.4",
     "uuid": "^13.0.0"
   }
