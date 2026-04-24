@@ -1532,6 +1532,13 @@ input[type="range"]::-moz-range-thumb {
   flex-wrap: wrap;
 }
 
+.place-history-actions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-top: var(--space-sm);
+}
+
 .place-alias-history {
   margin-top: var(--space-sm);
   border-top: 1px solid var(--glass-border);
@@ -2312,6 +2319,11 @@ input[type="range"]::-moz-range-thumb {
 
   .place-history-heading {
     align-items: flex-start;
+  }
+
+  .place-history-actions,
+  .place-history-actions .btn {
+    width: 100%;
   }
 
   .place-alias-history-row {
