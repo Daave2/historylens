@@ -11,6 +11,7 @@ import {
   getOverviewHistory,
   restoreOverviewRevision,
   createOverviewRevision,
+  addPlaceNameAlias,
   updatePlaceNameAlias,
   deletePlaceNameAlias,
   getPlaceNameAliasHistory,
@@ -197,7 +198,11 @@ export default class PlaceDetail {
         </div>
       `
       : `<div class="place-fact-empty">No historic names recorded yet.</div>`;
-    const aliasHistoryHtml = renderAliasHistoryList(aliasHistory, profileLabel);
+    const activeAliasIds = new Set(historicalNames.map(alias => alias.id));
+    const aliasHistoryHtml = renderAliasHistoryList(aliasHistory, profileLabel, {
+      canRestore: canEditPublishedNames,
+      activeAliasIds
+    });
     const namesHtml = `
       <div class="place-tab-panel">
         <div class="place-tab-panel-header">
@@ -214,7 +219,7 @@ export default class PlaceDetail {
         ${canEditPublishedNames ? `
           <div class="place-page-guide place-page-guide-compact">
             <strong>Editing names:</strong>
-            <span>Use <b>Edit name</b> to correct wording, years, or notes. Use <b>Remove</b> when a name should no longer appear. The removed name remains visible in Change History.</span>
+            <span>Use <b>Edit name</b> to correct wording, years, or notes. Use <b>Remove</b> when a name should no longer appear. Change History lets editors restore deleted names or revert an edit.</span>
           </div>
         ` : ''}
         ${aliasListHtml}
@@ -812,6 +817,72 @@ export default class PlaceDetail {
       });
     });
 
+    this.content.querySelectorAll('.alias-restore-history-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const change = aliasHistory.find(item => item.id === btn.dataset.historyId);
+        if (!change || change.action !== 'delete') return;
+
+        const restored = aliasPayloadFromHistory(change, 'previous');
+        if (!restored.alias) {
+          await this.showNotice('This deleted name cannot be restored because the audit entry does not include a name.', 'Restore Failed');
+          return;
+        }
+
+        const confirmed = await this.confirmAction(
+          `Restore "${restored.alias}" to this place's historic names?`,
+          'Restore Name'
+        );
+        if (!confirmed) return;
+
+        try {
+          await addPlaceNameAlias({
+            placeId: change.placeId || place.id,
+            projectId: change.projectId || place.projectId,
+            ...restored
+          });
+          await rerenderCurrentTab('names');
+          await this.showNotice('Historical name restored.', 'Restored');
+        } catch (err) {
+          console.error(err);
+          await this.showNotice('Could not restore this historical name.', 'Restore Failed');
+        }
+      });
+    });
+
+    this.content.querySelectorAll('.alias-revert-history-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const change = aliasHistory.find(item => item.id === btn.dataset.historyId);
+        if (!change || change.action !== 'update' || !change.aliasId) return;
+
+        const currentAlias = historicalNames.find(item => item.id === change.aliasId);
+        if (!currentAlias) {
+          await this.showNotice('This version cannot be restored because the current name has already been removed.', 'Revert Unavailable');
+          return;
+        }
+
+        const previous = aliasPayloadFromHistory(change, 'previous');
+        if (!previous.alias) {
+          await this.showNotice('This edit cannot be reverted because the previous name is missing from the audit entry.', 'Revert Failed');
+          return;
+        }
+
+        const confirmed = await this.confirmAction(
+          `Revert "${currentAlias.alias}" back to "${previous.alias}"?`,
+          'Revert Edit'
+        );
+        if (!confirmed) return;
+
+        try {
+          await updatePlaceNameAlias(change.aliasId, previous);
+          await rerenderCurrentTab('names');
+          await this.showNotice('Historical name reverted.', 'Reverted');
+        } catch (err) {
+          console.error(err);
+          await this.showNotice('Could not revert this historical name.', 'Revert Failed');
+        }
+      });
+    });
+
     // Wire event listeners
     if (canAddEntry) {
       this.content.querySelector('#detail-add-entry')?.addEventListener('click', () => {
@@ -1315,7 +1386,17 @@ function formatAliasHistoryDetail(change) {
   return [`${previousLabel || 'Previous name'} -> ${nextLabel || 'Updated name'}`, noteLabel].filter(Boolean).join(' · ');
 }
 
-function renderAliasHistoryList(changes, profileLabel) {
+function aliasPayloadFromHistory(change, side = 'previous') {
+  const prefix = side === 'new' ? 'new' : 'previous';
+  return {
+    alias: change[`${prefix}Alias`] || '',
+    startYear: change[`${prefix}StartYear`] ?? null,
+    endYear: change[`${prefix}EndYear`] ?? null,
+    note: change[`${prefix}Note`] || ''
+  };
+}
+
+function renderAliasHistoryList(changes, profileLabel, { canRestore = false, activeAliasIds = new Set() } = {}) {
   if (!changes.length) {
     return `
       <div class="place-fact-empty">
@@ -1327,16 +1408,32 @@ function renderAliasHistoryList(changes, profileLabel) {
   const ordered = changes.slice().sort((a, b) => b.createdAt - a.createdAt);
   return `
     <div class="place-history-list place-alias-history-full">
-      ${ordered.map(change => `
-        <article class="place-history-item">
-          <div class="place-history-heading">
-            <div class="place-history-title">${escapeHtml(aliasHistoryActionLabel(change.action))}</div>
-            <div class="place-history-date">${escapeHtml(new Date(change.createdAt).toLocaleString())}</div>
-          </div>
-          <div class="place-history-meta">by ${escapeHtml(profileLabel(change.changedBy))}</div>
-          <div class="place-history-detail">${escapeHtml(formatAliasHistoryDetail(change))}</div>
-        </article>
-      `).join('')}
+      ${ordered.map(change => {
+        const canRestoreDeleted = canRestore && change.action === 'delete' && Boolean(change.previousAlias);
+        const canRevertEdit = canRestore && change.action === 'update' && change.aliasId && activeAliasIds.has(change.aliasId);
+        const actionHtml = canRestoreDeleted || canRevertEdit
+          ? `
+            <div class="place-history-actions">
+              ${canRestoreDeleted ? `<button class="btn btn-ghost alias-restore-history-btn" data-history-id="${escapeAttr(change.id)}" style="padding: 4px 8px; font-size: 11px;">Restore name</button>` : ''}
+              ${canRevertEdit ? `<button class="btn btn-ghost alias-revert-history-btn" data-history-id="${escapeAttr(change.id)}" style="padding: 4px 8px; font-size: 11px;">Revert edit</button>` : ''}
+            </div>
+          `
+          : '';
+
+        return `
+          <article class="place-history-item">
+            <div class="place-history-heading">
+              <div>
+                <div class="place-history-title">${escapeHtml(aliasHistoryActionLabel(change.action))}</div>
+                <div class="place-history-meta">by ${escapeHtml(profileLabel(change.changedBy))}</div>
+              </div>
+              <div class="place-history-date">${escapeHtml(new Date(change.createdAt).toLocaleString())}</div>
+            </div>
+            <div class="place-history-detail">${escapeHtml(formatAliasHistoryDetail(change))}</div>
+            ${actionHtml}
+          </article>
+        `;
+      }).join('')}
     </div>
   `;
 }
