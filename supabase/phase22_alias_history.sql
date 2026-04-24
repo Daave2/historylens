@@ -121,7 +121,7 @@ BEGIN
       previous_note,
       changed_by
     ) VALUES (
-      OLD.id,
+      NULL,
       OLD.place_id,
       OLD.project_id,
       'delete',

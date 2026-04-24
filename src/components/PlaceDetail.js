@@ -58,10 +58,10 @@ export default class PlaceDetail {
     const [entries, comments, overviewHistory, primaryImage, locationHistory, aliasHistory] = await Promise.all([
       getTimeEntriesForPlace(place.id),
       getComments(place.id),
-      getOverviewHistory(place.id, 20),
+      getOverviewHistory(place.id, 100),
       getPrimaryPlaceImage(place.id),
-      getPlaceLocationHistory(place.id, 20),
-      getPlaceNameAliasHistory(place.id, 50)
+      getPlaceLocationHistory(place.id, 100),
+      getPlaceNameAliasHistory(place.id, 500)
     ]);
 
     const entriesWithImages = [];
@@ -108,7 +108,13 @@ export default class PlaceDetail {
     const canManageAlias = (alias) => !isReadOnly && (
       currentUserRole === 'owner' ||
       currentUserRole === 'admin' ||
-      (currentUserRole === 'editor' && currentUser && alias.createdBy === currentUser.id)
+      currentUserRole === 'editor' ||
+      (currentUser && alias.createdBy === currentUser.id)
+    );
+    const canEditPublishedNames = !isReadOnly && (
+      currentUserRole === 'owner' ||
+      currentUserRole === 'admin' ||
+      currentUserRole === 'editor'
     );
     const summaryReasonLabel = (reason) => ({
       regenerate: 'Summary built from timeline',
@@ -162,8 +168,8 @@ export default class PlaceDetail {
                     <div class="place-alias-meta">${escapeHtml(formatAliasRange(alias))}</div>
                   </div>
                   ${canManageAlias(alias) ? `
-                    <div style="display:flex; gap: var(--space-xs);">
-                      <button class="btn btn-ghost alias-edit-btn" data-alias-id="${escapeAttr(alias.id)}" style="padding: 4px 8px; font-size: 11px;">Edit</button>
+                    <div class="place-alias-actions">
+                      <button class="btn btn-ghost alias-edit-btn" data-alias-id="${escapeAttr(alias.id)}" style="padding: 4px 8px; font-size: 11px;">Edit name</button>
                       <button class="btn btn-ghost alias-delete-btn" data-alias-id="${escapeAttr(alias.id)}" style="padding: 4px 8px; font-size: 11px;">Remove</button>
                     </div>
                   ` : ''}
@@ -181,6 +187,48 @@ export default class PlaceDetail {
           ${canProposeCorrections ? 'No historic names recorded yet. Add the first one when you know a former name for this place.' : 'No historic names recorded yet.'}
         </div>
       `;
+    const aliasPreviewHtml = historicalNames.length > 0
+      ? `
+        <div class="place-alias-preview">
+          ${historicalNames.slice(0, 4).map(alias => `
+            <span>${escapeHtml(alias.alias)}${formatAliasRange(alias, { emptyLabel: '' }) ? ` <small>${escapeHtml(formatAliasRange(alias, { emptyLabel: '' }))}</small>` : ''}</span>
+          `).join('')}
+          ${historicalNames.length > 4 ? `<span>+${historicalNames.length - 4} more</span>` : ''}
+        </div>
+      `
+      : `<div class="place-fact-empty">No historic names recorded yet.</div>`;
+    const aliasHistoryHtml = renderAliasHistoryList(aliasHistory, profileLabel);
+    const namesHtml = `
+      <div class="place-tab-panel">
+        <div class="place-tab-panel-header">
+          <div>
+            <h3>Historic Names</h3>
+            <p>Former, alternate, or disputed names for this place. Editors can change or remove names, and every edit is logged.</p>
+          </div>
+          ${canProposeCorrections ? `
+            <div class="place-tab-actions">
+              <button class="btn btn-primary" id="detail-suggest-alias">${escapeHtml(aliasActionLabel)}</button>
+            </div>
+          ` : ''}
+        </div>
+        ${canEditPublishedNames ? `
+          <div class="place-page-guide place-page-guide-compact">
+            <strong>Editing names:</strong>
+            <span>Use <b>Edit name</b> to correct wording, years, or notes. Use <b>Remove</b> when a name should no longer appear. The removed name remains visible in Change History.</span>
+          </div>
+        ` : ''}
+        ${aliasListHtml}
+        <section class="place-fact-section">
+          <div class="place-fact-section-header">
+            <div>
+              <h3>Name Change History</h3>
+              <p>All recorded changes to historic names for this place.</p>
+            </div>
+          </div>
+          ${aliasHistoryHtml}
+        </section>
+      </div>
+    `;
 
     const activityItems = [
       {
@@ -228,8 +276,7 @@ export default class PlaceDetail {
         actorId: entry.createdBy
       }))
     ]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 40);
+      .sort((a, b) => b.createdAt - a.createdAt);
     const recentChangesCount = activityItems.length;
 
     const placeHistoryHtml = activityItems.length > 0
@@ -256,8 +303,8 @@ export default class PlaceDetail {
       <div class="place-tab-panel">
         <div class="place-tab-panel-header">
           <div>
-            <h3>Recent Changes</h3>
-            <p>A public log of additions and edits to this place.</p>
+            <h3>Change History</h3>
+            <p>A public log of visible additions and logged edits for this place.</p>
           </div>
         </div>
         ${placeHistoryHtml}
@@ -288,9 +335,9 @@ export default class PlaceDetail {
               <h3>Historic Names</h3>
               <p>Past or alternate names used for this place.</p>
             </div>
-            ${canProposeCorrections ? `<button class="btn btn-ghost" id="detail-suggest-alias">${escapeHtml(aliasActionLabel)}</button>` : ''}
+            <button class="btn btn-ghost detail-open-names" type="button">${historicalNames.length > 0 ? 'Manage Names' : 'Open Names'}</button>
           </div>
-          ${aliasListHtml}
+          ${aliasPreviewHtml}
         </section>
         ${versionHistoryHtml}
       </div>
@@ -540,13 +587,14 @@ export default class PlaceDetail {
 
       <div class="place-page-guide">
         <strong>Start here:</strong>
-        <span>Read the summary, scan the timeline for dated facts, check recent changes for edits, and use Talk for questions.</span>
+        <span>Read the summary, scan the timeline for dated facts, manage historic names, check Changes for edits, and use Talk for questions.</span>
       </div>
 
       <div class="detail-tabs" style="display: flex; gap: var(--space-md); border-bottom: 1px solid var(--glass-border); margin: var(--space-lg) 0;">
         <button class="tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" data-tab="overview" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'overview' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'overview' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'overview' ? 'var(--accent)' : 'transparent'};">Summary</button>
         <button class="tab-btn ${this.activeTab === 'timeline' ? 'active' : ''}" data-tab="timeline" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'timeline' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'timeline' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'timeline' ? 'var(--accent)' : 'transparent'};">Timeline <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${entries.length}</span></button>
-        <button class="tab-btn ${this.activeTab === 'history' ? 'active' : ''}" data-tab="history" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'history' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'history' ? 'var(--accent)' : 'transparent'};">Recent Changes <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${recentChangesCount}</span></button>
+        <button class="tab-btn ${this.activeTab === 'names' ? 'active' : ''}" data-tab="names" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'names' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'names' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'names' ? 'var(--accent)' : 'transparent'};">Names <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${historicalNames.length}</span></button>
+        <button class="tab-btn ${this.activeTab === 'history' ? 'active' : ''}" data-tab="history" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'history' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'history' ? 'var(--accent)' : 'transparent'};">Changes <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${recentChangesCount}</span></button>
         <button class="tab-btn ${this.activeTab === 'discussion' ? 'active' : ''}" data-tab="discussion" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'discussion' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'discussion' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'discussion' ? 'var(--accent)' : 'transparent'};">Talk <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
       </div>
 
@@ -555,6 +603,9 @@ export default class PlaceDetail {
       </div>
       <div id="tab-timeline" class="tab-content" style="display: ${this.activeTab === 'timeline' ? 'block' : 'none'};">
         ${timelineHtml}
+      </div>
+      <div id="tab-names" class="tab-content" style="display: ${this.activeTab === 'names' ? 'block' : 'none'};">
+        ${namesHtml}
       </div>
       <div id="tab-history" class="tab-content" style="display: ${this.activeTab === 'history' ? 'block' : 'none'};">
         ${recentChangesHtml}
@@ -592,6 +643,12 @@ export default class PlaceDetail {
       await this.show(refreshedPlace || place, isReadOnly, currentUser, currentUserRole, canSuggest);
       this.content.querySelector(`.tab-btn[data-tab="${nextTab}"]`)?.click();
     };
+
+    this.content.querySelectorAll('.detail-open-names').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.content.querySelector('.tab-btn[data-tab="names"]')?.click();
+      });
+    });
 
     const editOverviewBtn = this.content.querySelector('#detail-edit-overview');
     if (editOverviewBtn) {
@@ -1258,13 +1315,39 @@ function formatAliasHistoryDetail(change) {
   return [`${previousLabel || 'Previous name'} -> ${nextLabel || 'Updated name'}`, noteLabel].filter(Boolean).join(' · ');
 }
 
+function renderAliasHistoryList(changes, profileLabel) {
+  if (!changes.length) {
+    return `
+      <div class="place-fact-empty">
+        No name changes have been logged yet. Existing names may pre-date the audit trail; new edits and removals will appear here.
+      </div>
+    `;
+  }
+
+  const ordered = changes.slice().sort((a, b) => b.createdAt - a.createdAt);
+  return `
+    <div class="place-history-list place-alias-history-full">
+      ${ordered.map(change => `
+        <article class="place-history-item">
+          <div class="place-history-heading">
+            <div class="place-history-title">${escapeHtml(aliasHistoryActionLabel(change.action))}</div>
+            <div class="place-history-date">${escapeHtml(new Date(change.createdAt).toLocaleString())}</div>
+          </div>
+          <div class="place-history-meta">by ${escapeHtml(profileLabel(change.changedBy))}</div>
+          <div class="place-history-detail">${escapeHtml(formatAliasHistoryDetail(change))}</div>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderAliasInlineHistory(changes, profileLabel) {
   if (!changes.length) return '';
 
   const ordered = changes.slice().sort((a, b) => b.createdAt - a.createdAt);
   return `
     <details class="place-alias-history">
-      <summary>${ordered.length} change${ordered.length === 1 ? '' : 's'}</summary>
+      <summary>View change history (${ordered.length})</summary>
       <div class="place-alias-history-list">
         ${ordered.slice(0, 6).map(change => `
           <div class="place-alias-history-row">

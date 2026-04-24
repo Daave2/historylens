@@ -715,7 +715,7 @@ async function initProjectView(project) {
             });
             await sidebar.loadPlaces(project.id);
             const refreshed = await getPlace(place.id);
-            if (refreshed) await showPlaceDetail(refreshed, 'overview');
+            if (refreshed) await showPlaceDetail(refreshed, 'names');
             showToast('Historical name added', 'success');
             return;
           }
