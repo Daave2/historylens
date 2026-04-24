@@ -14,11 +14,11 @@ export default class AuthModal {
         this.modal.style.zIndex = '3600';
 
         this.modal.innerHTML = `
-      <div class="modal glass-panel" style="max-width: 420px; width: 100%; padding: var(--space-xl);">
-        <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Sign In / Sign Up</h2>
-        <p style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-xl);">
-          To create projects or edit places, you need to sign in. Reading public history is always free.
-        </p>
+	      <div class="modal glass-panel" style="max-width: 420px; width: 100%; padding: var(--space-xl);">
+	        <h2 id="auth-title" style="font-family: var(--font-heading); margin-bottom: var(--space-md);">Sign In to Contribute</h2>
+	        <p id="auth-description" style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-xl);">
+	          Browsing public history is always free. Sign in only if you want to create maps, request access, or add edits.
+	        </p>
         
         <div class="form-group">
           <label class="form-label">Email</label>
@@ -34,11 +34,11 @@ export default class AuthModal {
 
         <div style="display: flex; gap: var(--space-sm); flex-direction: column;">
           <button class="btn btn-primary" id="auth-btn-login" style="width: 100%;">Sign In</button>
-          <button class="btn btn-ghost" id="auth-btn-signup" style="width: 100%;">Create Account</button>
+          <button class="btn btn-ghost" id="auth-btn-signup" style="width: 100%;">Create Free Account</button>
         </div>
         
         <div style="margin-top: var(--space-lg); text-align: center;">
-          <button class="btn btn-ghost" id="auth-btn-cancel" style="font-size: var(--text-xs);">Cancel (Read Only)</button>
+          <button class="btn btn-ghost" id="auth-btn-cancel" style="font-size: var(--text-xs);">Keep Browsing</button>
         </div>
       </div>
     `;
@@ -102,11 +102,23 @@ export default class AuthModal {
         });
     }
 
-    show({ onSuccess } = {}) {
+    show({
+        onSuccess,
+        title = 'Sign In to Contribute',
+        description = 'Browsing public history is always free. Sign in only if you want to create maps, request access, or add edits.',
+        cancelLabel = 'Keep Browsing'
+    } = {}) {
         this.onLoginSuccess = onSuccess;
         this.modal.style.display = 'flex';
+        this.modal.querySelector('#auth-title').textContent = title;
+        this.modal.querySelector('#auth-description').textContent = description;
+        this.modal.querySelector('#auth-btn-cancel').textContent = cancelLabel;
+        this.modal.querySelector('#auth-email').value = '';
+        this.modal.querySelector('#auth-password').value = '';
+        const errorEl = this.modal.querySelector('#auth-error');
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
         this.modal.querySelector('#auth-email').focus();
-        this.modal.querySelector('#auth-error').style.display = 'none';
     }
 
     close() {

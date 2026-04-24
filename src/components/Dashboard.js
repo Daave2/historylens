@@ -8,6 +8,7 @@ export default class Dashboard {
         this.onAuthRequest = onAuthRequest;
         this.onGuideRequest = onGuideRequest;
         this.currentUser = null;
+        this.allProjects = [];
     }
 
     createDom() {
@@ -170,10 +171,11 @@ export default class Dashboard {
     renderGrid(tab) {
         const grid = this.container.querySelector('#dashboard-grid');
         grid.innerHTML = ''; // reset
+        const allProjects = Array.isArray(this.allProjects) ? this.allProjects : [];
 
         let projectsToShow = [];
         if (tab === 'public') {
-            projectsToShow = this.allProjects.filter(p => p.isPublic !== false);
+            projectsToShow = allProjects.filter(p => p.isPublic !== false);
         } else if (tab === 'mine') {
             if (!this.currentUser) {
                 grid.innerHTML = `
@@ -187,7 +189,7 @@ export default class Dashboard {
                 });
                 return;
             }
-            projectsToShow = this.allProjects.filter(p => p.ownerId === this.currentUser.id);
+            projectsToShow = allProjects.filter(p => p.ownerId === this.currentUser.id);
         }
 
         // If 'mine', add the create card first

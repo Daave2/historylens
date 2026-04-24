@@ -45,6 +45,7 @@ let currentVisiblePlaceIds = null; // null means all are visible
 let guideModal = null;
 let guideModalHandlers = null;
 let authModalPromise = null;
+let projectAuthStateHandler = null;
 const componentModulePromises = {};
 const GUIDE_STORAGE = {
   seen: 'historylens.quick-guide.shown.v1'
@@ -312,6 +313,9 @@ async function init() {
   onAuthStateChange((event, session) => {
     currentUser = session?.user || null;
     updateAuthUI(currentUser);
+    if (typeof projectAuthStateHandler === 'function') {
+      void projectAuthStateHandler(event);
+    }
   });
 
   authBtn.addEventListener('click', async () => {
@@ -479,8 +483,12 @@ function getRolePermissions(role) {
 }
 
 async function initProjectView(project) {
+  const getProjectPermissions = (role) => ({
+    ...getRolePermissions(role),
+    isSignedIn: !!currentUser
+  });
   let currentUserRole = currentUser ? await getUserRole(project.id) : null;
-  let permissions = getRolePermissions(currentUserRole);
+  let permissions = getProjectPermissions(currentUserRole);
   const mobileSidebarQuery = window.matchMedia('(max-width: 900px)');
   let sidebar = null;
   let placeDetail = null;
@@ -489,11 +497,116 @@ async function initProjectView(project) {
   let mapView = null;
   let hoverCard = null;
   let timeSlider = null;
+  let activePlaceId = null;
 
-  const applyRoleChange = (nextRole) => {
-    currentUserRole = nextRole;
-    permissions = getRolePermissions(currentUserRole);
+  const refreshOpenPlaceDetail = async () => {
+    const isDetailOpen = !!activePlaceId && placeDetail?.modal?.style.display !== 'none';
+    if (!isDetailOpen) return;
+
+    const refreshedPlace = await getPlace(activePlaceId);
+    if (!refreshedPlace) {
+      placeDetail?.close();
+      return;
+    }
+
+    await showPlaceDetail(refreshedPlace, placeDetail?.activeTab || 'overview');
+  };
+
+  const syncProjectAccessState = async ({ nextRole, closeDraftForms = false } = {}) => {
+    currentUserRole = typeof nextRole === 'undefined'
+      ? (currentUser ? await getUserRole(project.id) : null)
+      : nextRole;
+    permissions = getProjectPermissions(currentUserRole);
     if (sidebar) sidebar.setProject(currentProject, permissions, currentUserRole);
+
+    if (closeDraftForms) {
+      placeForm?.close();
+      entryForm?.close();
+      mapView?.setAddMode(false);
+    }
+
+    await refreshOpenPlaceDetail();
+  };
+
+  const getAccessRequestFeedback = (result = {}) => {
+    const role = result.role;
+    const status = result.status;
+
+    if (role === 'pending') {
+      return status === 'existing'
+        ? {
+            message: 'Your access request is already pending. You can keep suggesting places and timeline entries while you wait.',
+            type: 'info'
+          }
+        : {
+            message: 'Access request sent. You can start suggesting places and timeline entries while you wait.',
+            type: 'success'
+          };
+    }
+
+    if (role === 'owner' || role === 'admin' || role === 'editor') {
+      return {
+        message: 'You already have edit access to this map.',
+        type: 'info'
+      };
+    }
+
+    if (role === 'banned') {
+      return {
+        message: 'This account currently has read-only access to this map.',
+        type: 'info'
+      };
+    }
+
+    return {
+      message: 'Access status updated.',
+      type: 'info'
+    };
+  };
+
+  const handleAccessRequestResult = async (result) => {
+    await syncProjectAccessState({ nextRole: result?.role ?? null });
+    const feedback = getAccessRequestFeedback(result);
+    showToast(feedback.message, feedback.type);
+  };
+
+  const openRequestAccessDialog = async () => {
+    const settingsModal = await createProjectSettings();
+    settingsModal.showRequestAccess(
+      currentProject.id,
+      (result) => {
+        void handleAccessRequestResult(result);
+      },
+      { projectName: currentProject.name }
+    );
+  };
+
+  const requestProjectAccess = async () => {
+    if (!currentUser) {
+      const authModal = await ensureAuthModal();
+      authModal.show({
+        title: 'Sign in to request access',
+        description: `Sign in to ask for edit access to ${currentProject.name}. While your request is pending, you can still suggest places and timeline entries for review.`,
+        cancelLabel: 'Keep Browsing',
+        onSuccess: async (user) => {
+          currentUser = user;
+          updateAuthUI(currentUser);
+          await projectAuthStateHandler?.('SIGNED_IN');
+          showToast(`Signed in as ${user.email}`, 'success');
+
+          const existingRole = await getUserRole(currentProject.id);
+          if (existingRole) {
+            await handleAccessRequestResult({ role: existingRole, status: 'existing' });
+            return;
+          }
+
+          await openRequestAccessDialog();
+        }
+      });
+      return;
+    }
+
+    await openRequestAccessDialog();
   };
 
   // Map
@@ -537,12 +650,15 @@ async function initProjectView(project) {
   const startAddPlaceFlow = () => {
     if (!permissions.canSubmit) return false;
     mapView.setAddMode(true);
-    const actionLabel = permissions.canEditPublished ? 'place a marker' : 'suggest a place for review';
+    const actionLabel = permissions.canEditPublished
+      ? 'place a marker. You will fill in the details next'
+      : 'mark the place you want to suggest for review';
     showToast(`Click on the map to ${actionLabel}`, 'info');
     return true;
   };
 
   const showPlaceDetail = async (place, activeTab = 'overview') => {
+    activePlaceId = place.id;
     const detail = await ensurePlaceDetail();
     detail.activeTab = activeTab;
     await detail.show(
@@ -649,7 +765,9 @@ async function initProjectView(project) {
             };
           });
         },
-        onClose: () => { }
+        onClose: () => {
+          activePlaceId = null;
+        }
       });
     }
     return placeDetail;
@@ -686,9 +804,12 @@ async function initProjectView(project) {
             await regeneratePlaceOverview(place.id, { force: false });
 
             await sidebar.loadPlaces(project.id);
+            sidebar.setActive(place.id);
+            mapView.panTo(place.lat, place.lng);
             await timeSlider.setRange(project.id);
             const entryCount = autoEntries?.length || 0;
             showToast(`"${name}" added${entryCount > 0 ? ` with ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}` : ''}`, 'success');
+            await showPlaceDetail(place, 'timeline');
             return;
           }
 
@@ -881,35 +1002,21 @@ async function initProjectView(project) {
         }
       });
     },
-    onRequestAccess: async () => {
-      const handleAccessRequestResult = (result) => {
-        const nextRole = result?.role || 'pending';
-        applyRoleChange(nextRole);
-      };
-
-      if (!currentUser) {
-        const authModal = await ensureAuthModal();
-        authModal.show({
-          onSuccess: async () => {
-            const settingsModal = await createProjectSettings();
-            settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
-          }
-        });
-        return;
-      }
-      const settingsModal = await createProjectSettings();
-      settingsModal.showRequestAccess(currentProject.id, handleAccessRequestResult);
-    },
+    onRequestAccess: requestProjectAccess,
     onGuide: async () => {
       const modal = await ensureGuideModal();
       modal.showProject({
         canSubmit: permissions.canSubmit,
-        canEditPublished: permissions.canEditPublished
+        canEditPublished: permissions.canEditPublished,
+        isSignedIn: !!currentUser
       });
     }
   });
   sidebar.setProject(project, permissions, currentUserRole);
   await sidebar.loadPlaces(project.id);
+  projectAuthStateHandler = async () => {
+    await syncProjectAccessState({ closeDraftForms: true });
+  };
 
   setGuideModalHandlers({
     onFocusSearch: () => {
@@ -928,6 +1035,9 @@ async function initProjectView(project) {
       }
       spotlightElement(addBtn);
       startAddPlaceFlow();
+    },
+    onRequestAccess: () => {
+      void requestProjectAccess();
     }
   });
 

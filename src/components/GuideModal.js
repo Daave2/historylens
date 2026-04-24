@@ -54,9 +54,9 @@ export default class GuideModal {
         this.show();
     }
 
-    showProject({ canSubmit = false, canEditPublished = false } = {}) {
+    showProject({ canSubmit = false, canEditPublished = false, isSignedIn = false } = {}) {
         this.mode = 'project';
-        this.state = { canSubmit, canEditPublished };
+        this.state = { canSubmit, canEditPublished, isSignedIn };
         this.render();
         this.show();
     }
@@ -133,54 +133,62 @@ export default class GuideModal {
     }
 
     getProjectContent() {
-        const { canSubmit, canEditPublished } = this.state;
+        const { canSubmit, canEditPublished, isSignedIn } = this.state;
         const addLabel = canEditPublished ? 'Add Place' : 'Suggest Place';
         const canAdd = canSubmit;
 
         const steps = canAdd
             ? [
                 {
-                    title: `Click ${addLabel}`,
-                    detail: 'Then click on the map.'
+                    title: `Add one place`,
+                    detail: `Click ${addLabel}, then click the map.`
                 },
                 {
-                    title: 'Fill the place form',
-                    detail: 'Add a name, category, and short summary.'
+                    title: 'Add one dated fact',
+                    detail: 'Open the place page and add the first dated timeline entry.'
                 },
                 {
-                    title: 'Add timeline entries',
-                    detail: 'Open the place and add dated events with sources.'
+                    title: 'Use Recent Changes and Talk',
+                    detail: 'Review edits and use Talk for source questions or open issues.'
                 }
             ]
             : [
                 {
                     title: 'Use search',
-                    detail: 'Find places fast from the sidebar.'
+                    detail: 'Find places fast from the sidebar by name, year, or event.'
                 },
                 {
                     title: 'Open any place',
-                    detail: 'See timeline entries and sources.'
+                    detail: 'Read the summary, timeline, and recent changes.'
                 },
                 {
-                    title: 'Need edit access?',
-                    detail: 'Use Request Access in project settings.'
+                    title: isSignedIn ? 'Request access' : 'Sign in and request access',
+                    detail: isSignedIn
+                        ? 'Use Request Access in the sidebar if you should help edit this map.'
+                        : 'Use Sign In to Request Access in the sidebar if you should help edit this map.'
                 }
             ];
 
-        const actions = [{ id: 'project-search', label: 'Focus Search', variant: 'primary' }];
+        const actions = [{ id: 'project-search', label: 'Focus Search', variant: canAdd ? 'ghost' : 'primary' }];
         if (canAdd) {
-            actions.push({ id: 'project-add', label: `Start ${addLabel}`, variant: 'ghost' });
+            actions.unshift({ id: 'project-add', label: `Start ${addLabel}`, variant: 'primary' });
+        } else {
+            actions.push({
+                id: 'project-request',
+                label: isSignedIn ? 'Request Access' : 'Sign In to Request Access',
+                variant: 'ghost'
+            });
         }
 
         return {
             kicker: 'Project Guide',
-            title: 'How this project works',
+            title: 'How to use this map',
             description: canAdd
-                ? 'Add places first, then add timeline entries.'
+                ? 'Build one place page at a time.'
                 : 'You have read-only access right now.',
             steps,
             actions,
-            note: 'Keep entries short and source-backed.'
+            note: 'Keep edits small, clear, and source-backed.'
         };
     }
 
@@ -206,6 +214,10 @@ export default class GuideModal {
                 break;
             case 'project-add':
                 this.handlers.onStartAddPlace?.();
+                this.hide();
+                break;
+            case 'project-request':
+                this.handlers.onRequestAccess?.();
                 this.hide();
                 break;
             default:

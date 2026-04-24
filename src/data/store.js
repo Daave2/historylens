@@ -703,6 +703,34 @@ export async function addPlaceNameAlias({ placeId, projectId, alias, startYear =
     return mapAlias(data);
 }
 
+export async function updatePlaceNameAlias(aliasId, changes = {}) {
+    const cleaned = (changes.alias || '').trim();
+    if (!cleaned) throw new Error('Historical name cannot be empty');
+
+    const { data, error } = await supabase
+        .from('place_name_aliases')
+        .update({
+            alias: cleaned,
+            start_year: safeInt(changes.startYear),
+            end_year: safeInt(changes.endYear),
+            note: changes.note || ''
+        })
+        .eq('id', aliasId)
+        .select()
+        .single();
+    if (error) { console.error(error); throw error; }
+    return mapAlias(data);
+}
+
+export async function deletePlaceNameAlias(aliasId) {
+    const { error } = await supabase
+        .from('place_name_aliases')
+        .delete()
+        .eq('id', aliasId);
+    if (error) { console.error(error); throw error; }
+    return true;
+}
+
 export async function getPlaceLocationHistory(placeId, limit = 15) {
     const { data, error } = await supabase
         .from('place_location_history')

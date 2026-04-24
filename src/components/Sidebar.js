@@ -22,6 +22,7 @@ export default class Sidebar {
         this.collabStatusEl = document.getElementById('collab-status');
         this.currentProjectId = null;
         this.currentUserRole = null;
+        this.isSignedIn = false;
         this.inboxRequestToken = 0;
 
         this.onPlaceClick = onPlaceClick;
@@ -60,6 +61,7 @@ export default class Sidebar {
     }
 
     setProject(project, permissionsOrReadOnly = false, currentUserRole = null) {
+        const isSameProject = this.currentProjectId === project.id;
         const permissions = typeof permissionsOrReadOnly === 'object'
             ? permissionsOrReadOnly
             : {
@@ -71,9 +73,12 @@ export default class Sidebar {
         this.isReadOnly = !!permissions.isReadOnly;
         this.canSubmit = !!permissions.canSubmit;
         this.canEditPublished = !!permissions.canEditPublished;
+        this.isSignedIn = !!permissions.isSignedIn;
         this.currentProjectId = project.id;
         this.currentUserRole = currentUserRole;
-        this.hasLoadedPlaces = false;
+        if (!isSameProject) {
+            this.hasLoadedPlaces = false;
+        }
         this.projectNameEl.textContent = project.name;
         this.projectDescEl.textContent = project.description || this.getProjectDescriptionPlaceholder();
 
@@ -119,6 +124,7 @@ export default class Sidebar {
             } else if (currentUserRole === null) {
                 this.settingsBtn.style.display = 'none';
                 this.collabRequestBtn.style.display = 'flex';
+                this.collabRequestBtn.textContent = this.isSignedIn ? 'Request Access' : 'Sign In to Request Access';
             } else {
                 this.settingsBtn.style.display = 'none';
                 this.collabRequestBtn.style.display = 'none';
@@ -126,15 +132,17 @@ export default class Sidebar {
         }
 
         if (this.collabStatusEl) {
-            this.collabStatusEl.style.display = 'none';
-            this.collabStatusEl.textContent = '';
             if (currentUserRole === 'pending') {
-                this.collabStatusEl.textContent = 'You can submit place and timeline suggestions while waiting for approval.';
-                this.collabStatusEl.style.display = 'block';
+                this.setCollabStatus('Your access request is in review. You can already suggest places, historic names, and timeline entries while you wait.', 'pending');
                 this.renderPendingSubmissionSummary(project.id);
             } else if (currentUserRole === 'banned') {
-                this.collabStatusEl.textContent = 'You do not have access to edit this project.';
-                this.collabStatusEl.style.display = 'block';
+                this.setCollabStatus('This account currently has read-only access on this map.', 'banned');
+            } else if (currentUserRole === null && this.isSignedIn) {
+                this.setCollabStatus('You are viewing this map in read-only mode. Request access to suggest changes or post on Talk.', 'viewer');
+            } else if (currentUserRole === null) {
+                this.setCollabStatus('Browsing as a guest. Sign in to request access, suggest changes, or post on Talk.', 'guest');
+            } else {
+                this.setCollabStatus();
             }
         }
 
@@ -142,11 +150,31 @@ export default class Sidebar {
         this.renderGuideCard();
     }
 
+    setCollabStatus(message = '', state = '') {
+        if (!this.collabStatusEl) return;
+        this.collabStatusEl.style.display = message ? 'block' : 'none';
+        this.collabStatusEl.textContent = message;
+        if (state) {
+            this.collabStatusEl.dataset.state = state;
+        } else {
+            delete this.collabStatusEl.dataset.state;
+        }
+    }
+
     async renderPendingSubmissionSummary(projectId) {
         try {
             const summary = await getMySubmissionSummary(projectId);
-            if (!this.collabStatusEl || summary.total === 0) return;
-            this.collabStatusEl.textContent = `You can submit place and timeline suggestions while waiting for approval. Pending: ${summary.pending}, approved: ${summary.approved}, rejected: ${summary.rejected}.`;
+            if (!this.collabStatusEl || this.currentProjectId !== projectId || this.currentUserRole !== 'pending') return;
+
+            const summaryParts = [];
+            if (summary.pending > 0) summaryParts.push(`${summary.pending} pending`);
+            if (summary.approved > 0) summaryParts.push(`${summary.approved} approved`);
+            if (summary.rejected > 0) summaryParts.push(`${summary.rejected} declined`);
+
+            const baseMessage = 'Your access request is in review. You can already suggest places, historic names, and timeline entries while you wait.';
+            this.collabStatusEl.textContent = summaryParts.length > 0
+                ? `${baseMessage} Suggestions so far: ${summaryParts.join(', ')}.`
+                : baseMessage;
         } catch (err) {
             console.warn('Could not load moderation summary:', err);
         }
@@ -290,15 +318,23 @@ export default class Sidebar {
                 natural: '🌳', infrastructure: '🏗️'
             }[place.category] || '📍';
 
+            const timelineYears = entries.flatMap((entry) => {
+                const years = [];
+                if (Number.isFinite(entry.yearStart)) years.push(entry.yearStart);
+                if (Number.isFinite(entry.yearEnd)) years.push(entry.yearEnd);
+                return years;
+            });
+            const firstYear = timelineYears.length > 0 ? Math.min(...timelineYears) : null;
+            const lastYear = timelineYears.length > 0 ? Math.max(...timelineYears) : null;
             const meta = entries.length > 0
-                ? `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · ${entries[0].yearStart}–${entries[entries.length - 1].yearEnd || 'present'}`
-                : 'No entries yet';
+                ? `${entries.length} dated entr${entries.length === 1 ? 'y' : 'ies'}${firstYear !== null ? ` · ${firstYear}${lastYear !== null && lastYear !== firstYear ? `–${lastYear}` : ''}` : ''}`
+                : (this.canEditPublished ? 'Needs first dated entry' : 'No dated entries yet');
             const formerNames = (place.aliases || [])
                 .filter(a => a.endYear !== null && a.endYear !== undefined)
                 .slice(-2)
                 .map(a => a.alias);
             const formerNameHtml = formerNames.length > 0
-                ? `<div class="place-item-meta" style="font-size:11px; opacity:0.8;">Formerly ${escapeHtml(formerNames.join(', '))}</div>`
+                ? `<div class="place-item-meta" style="font-size:11px; opacity:0.8;">Also known as ${escapeHtml(formerNames.join(', '))}</div>`
                 : '';
 
             item.innerHTML = `
@@ -353,11 +389,11 @@ export default class Sidebar {
         }
 
         let title = 'Start with one place';
-        let description = 'This map is empty right now. One place and one dated entry is enough to get it started.';
+        let description = 'This map is empty right now. One place, one dated fact, and one source is enough to get it started.';
         let steps = [
             'Click Add Place.',
             'Click the map to drop the marker.',
-            'Open the place and add the first dated entry.'
+            'Save the place, then add the first dated entry.'
         ];
         let primaryAction = { id: 'add', label: 'Add First Place' };
 
@@ -367,28 +403,38 @@ export default class Sidebar {
             steps = [
                 'Click Suggest Place.',
                 'Click the map to mark the location.',
-                'Add a short note so reviewers know why it matters.'
+                'Save it, then add a dated note so reviewers know why it matters.'
             ];
             primaryAction = { id: 'add', label: 'Suggest First Place' };
         } else if (!this.canSubmit) {
-            title = 'This map is waiting for its first place';
-            description = this.currentUserRole === 'banned'
-                ? 'You can still read the map, but you do not currently have editing access.'
-                : 'You can still browse later or open the guide for the quickest way to contribute.';
-            steps = this.currentUserRole === null
-                ? [
-                    'Use search once places have been added.',
-                    'Open any place to read the timeline and sources.',
-                    'Request access if you should help build this map.'
-                ]
-                : [
-                    'Use search once places have been added.',
-                    'Open any place to read the timeline and sources.',
+            title = this.currentUserRole === 'banned'
+                ? 'This map is read-only for this account'
+                : 'This map is waiting for its first place';
+            if (this.currentUserRole === 'banned') {
+                description = 'You can still browse published places and sources, but contributions are turned off for this account.';
+                steps = [
+                    'Check back after editors add the first place.',
+                    'Open published places to read the summary and timeline.',
                     'Open the guide for the fastest walkthrough of the project.'
                 ];
-            primaryAction = this.currentUserRole === null
-                ? { id: 'request', label: 'Request Access' }
-                : { id: 'guide', label: 'Open Guide' };
+                primaryAction = { id: 'guide', label: 'Open Guide' };
+            } else if (this.isSignedIn) {
+                description = 'No places are published yet. Request access if you should help build this map.';
+                steps = [
+                    'Use Request Access in the sidebar.',
+                    'Once approved, add the first place.',
+                    'Add one dated fact and a source to get the map started.'
+                ];
+                primaryAction = { id: 'request', label: 'Request Access' };
+            } else {
+                description = 'No places are published yet. Sign in if you should help build this map.';
+                steps = [
+                    'Sign in from the sidebar.',
+                    'Request access to help build the map.',
+                    'Add the first place and its first dated fact.'
+                ];
+                primaryAction = { id: 'request', label: 'Sign In to Request Access' };
+            }
         }
 
         this.guideCardEl.innerHTML = `

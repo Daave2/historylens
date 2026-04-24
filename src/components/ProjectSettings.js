@@ -1,4 +1,4 @@
-import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getModerationSubmissions, reviewModerationSubmission, getProfiles } from '../data/store.js';
+import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getModerationSubmissions, reviewModerationSubmission, getProfiles, getProjectInboxCounts } from '../data/store.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
 
 export default class ProjectSettings {
@@ -143,23 +143,27 @@ export default class ProjectSettings {
     }
 
     // --- Mode 1: Viewer requesting access (inherited from old CollaboratorsModal) ---
-    showRequestAccess(projectId, onSuccess) {
+    showRequestAccess(projectId, onSuccess, { projectName = 'this map' } = {}) {
         const titleEl = this.modal.querySelector('#ps-modal-title');
         const bodyEl = this.modal.querySelector('#ps-modal-body');
+        const mapName = escapeHtml(projectName);
 
-        titleEl.textContent = 'Request Edit Access';
+        titleEl.textContent = 'Request Access';
 
         bodyEl.innerHTML = `
-      <div style="padding: var(--space-xl);">
-        <p style="color: var(--text-secondary); margin-bottom: var(--space-xl);">
-          You are currently viewing this project in read-only mode. Would you like to request edit access from the project owner?
-        </p>
-        <div style="display: flex; gap: var(--space-md); justify-content: flex-end;">
-          <button class="btn btn-ghost" id="ps-cancel-btn">Cancel</button>
-          <button class="btn btn-primary" id="ps-request-btn">Request Access</button>
-        </div>
-      </div>
-    `;
+	      <div style="padding: var(--space-xl);">
+	        <p style="color: var(--text-secondary); margin-bottom: var(--space-xl);">
+	          You are viewing ${mapName} in read-only mode. Send a request if you should help edit it.
+	        </p>
+            <p style="color: var(--text-muted); font-size: var(--text-sm); margin-bottom: var(--space-xl);">
+              While your request is pending, you can still suggest places and timeline entries for review.
+            </p>
+	        <div style="display: flex; gap: var(--space-md); justify-content: flex-end;">
+	          <button class="btn btn-ghost" id="ps-cancel-btn">Maybe Later</button>
+	          <button class="btn btn-primary" id="ps-request-btn">Request Access</button>
+	        </div>
+	      </div>
+	    `;
 
         bodyEl.querySelector('#ps-cancel-btn').addEventListener('click', () => this.hide());
 
@@ -187,6 +191,20 @@ export default class ProjectSettings {
         this.project = project;
         this.currentUserRole = currentUserRole; // 'owner' or 'admin'
         this.handlers = handlers; // Need updateProject, mapCentre callbacks
+        const canModerate = this.currentUserRole === 'owner' || this.currentUserRole === 'admin';
+        let inboxCounts = { pendingAccess: 0, pendingSubmissions: 0 };
+
+        if (canModerate) {
+            try {
+                inboxCounts = await getProjectInboxCounts(project.id);
+            } catch (err) {
+                console.warn('Could not load inbox counters for settings:', err);
+            }
+        }
+
+        const defaultTab = inboxCounts.pendingAccess > 0
+            ? 'collab'
+            : (inboxCounts.pendingSubmissions > 0 ? 'mod' : 'general');
 
         const titleEl = this.modal.querySelector('#ps-modal-title');
         const bodyEl = this.modal.querySelector('#ps-modal-body');
@@ -196,14 +214,14 @@ export default class ProjectSettings {
         bodyEl.innerHTML = `
       <div class="ps-layout">
         <!-- Sidebar Navigation -->
-        <div class="ps-nav">
-          <ul id="ps-tabs" class="ps-tabs">
-            <li class="ps-tab active" data-tab="general">Project</li>
-            <li class="ps-tab" data-tab="collab">Access</li>
-            ${this.currentUserRole === 'owner' || this.currentUserRole === 'admin' ? `<li class="ps-tab" data-tab="mod">Review</li>` : ''}
-            ${this.currentUserRole === 'owner' ? `<li class="ps-tab" data-tab="danger" style="color: var(--danger);">Danger Zone</li>` : ''}
-          </ul>
-        </div>
+	        <div class="ps-nav">
+	          <ul id="ps-tabs" class="ps-tabs">
+	            <li class="ps-tab ${defaultTab === 'general' ? 'active' : ''}" data-tab="general">Project</li>
+	            <li class="ps-tab ${defaultTab === 'collab' ? 'active' : ''}" data-tab="collab">Access${inboxCounts.pendingAccess > 0 ? ` <span class="badge" style="margin-left: 6px;">${inboxCounts.pendingAccess}</span>` : ''}</li>
+	            ${canModerate ? `<li class="ps-tab ${defaultTab === 'mod' ? 'active' : ''}" data-tab="mod">Review${inboxCounts.pendingSubmissions > 0 ? ` <span class="badge" style="margin-left: 6px;">${inboxCounts.pendingSubmissions}</span>` : ''}</li>` : ''}
+	            ${this.currentUserRole === 'owner' ? `<li class="ps-tab" data-tab="danger" style="color: var(--danger);">Danger Zone</li>` : ''}
+	          </ul>
+	        </div>
         
         <!-- Tab Content Area -->
         <div id="ps-tab-content" class="ps-tab-content">
@@ -235,8 +253,8 @@ export default class ProjectSettings {
             });
         });
 
-        // Default to first tab
-        tabs[0].click();
+        const defaultTabButton = Array.from(tabs).find(tab => tab.dataset.tab === defaultTab) || tabs[0];
+        defaultTabButton?.click();
         this.modal.style.display = 'flex';
     }
 

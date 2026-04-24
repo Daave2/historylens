@@ -36,13 +36,18 @@ export default class PlaceForm {
     this.lookupResult = null;
 
     this.content.innerHTML = `
-      <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-lg);">${isSuggestion ? 'Suggest New Place' : 'Add New Place'}</h2>
+      <h2 style="font-family: var(--font-heading); margin-bottom: var(--space-lg);">${isSuggestion ? 'Suggest Place' : 'Add Place'}</h2>
+
+      <div class="place-form-helper">
+        <strong>${isSuggestion ? 'Suggest one place at a time.' : 'Add one place at a time.'}</strong>
+        <p>Find the location, check the basic details, then save. You can always add more history after the place page opens.</p>
+      </div>
 
       <!-- Address Search Bar -->
       <div class="form-group" style="position: relative;">
-        <label class="form-label">🔍 Search Address</label>
+        <label class="form-label">1. Find the location</label>
         <input class="form-input" id="pf-search" name="place-search" type="search"
-               placeholder="Type an address, e.g. 4 Gordon Street, Blackpool"
+               placeholder="Search an address or place name"
                autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false"
                style="font-size: var(--text-md); padding: var(--space-sm) var(--space-md);" />
         <div id="pf-search-results" style="
@@ -55,16 +60,18 @@ export default class PlaceForm {
 
       <div style="display:flex; align-items:center; gap: var(--space-sm); margin: var(--space-sm) 0 var(--space-md);">
         <div style="flex:1; height:1px; background: var(--glass-border);"></div>
-        <span style="font-size: var(--text-xs); color: var(--text-muted);">or click the map</span>
+        <span style="font-size: var(--text-xs); color: var(--text-muted);">or click the map directly</span>
         <div style="flex:1; height:1px; background: var(--glass-border);"></div>
       </div>
+
+      <div class="form-section-kicker">2. Check the basic details</div>
 
       <div class="form-group">
         <label class="form-label">Place Name</label>
         <div style="display: flex; gap: var(--space-xs);">
           <select class="form-select" id="pf-name-select" style="flex: 1; display: none;"></select>
           <input class="form-input" id="pf-name" name="place-name" type="text" autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" placeholder="Will auto-fill from search or map click" style="flex: 1;" />
-          <button class="icon-btn" id="pf-rescan" title="Re-scan history using this exact name" style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: 0 var(--space-sm);">
+          <button class="icon-btn" id="pf-rescan" title="Refresh name and category suggestions" style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); padding: 0 var(--space-sm);">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
           </button>
         </div>
@@ -85,9 +92,11 @@ export default class PlaceForm {
       </div>
 
       <div class="form-group">
-        <label class="form-label">Abstract / Description</label>
-        <textarea class="form-textarea" id="pf-description" placeholder="A brief encyclopedia-style introduction to this place..." rows="4" style="font-family: var(--font-body); line-height: 1.6; resize: vertical;"></textarea>
+        <label class="form-label">Short Summary</label>
+        <textarea class="form-textarea" id="pf-description" placeholder="One or two sentences is enough for now." rows="4" style="font-family: var(--font-body); line-height: 1.6; resize: vertical;"></textarea>
       </div>
+
+      <div class="form-section-kicker">3. Save the place</div>
 
       <div class="form-group">
         <label class="form-label">Location</label>
@@ -103,7 +112,7 @@ export default class PlaceForm {
 
       <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-xl);">
         <button class="btn btn-ghost" id="pf-cancel">Cancel</button>
-        <button class="btn btn-primary" id="pf-save">${isSuggestion ? 'Submit Suggestion' : 'Add Place'}</button>
+        <button class="btn btn-primary" id="pf-save">${isSuggestion ? 'Submit Suggestion' : 'Save Place'}</button>
       </div>
     `;
 
@@ -282,7 +291,7 @@ export default class PlaceForm {
     const nameInput = this.content.querySelector('#pf-name');
     const catSelect = this.content.querySelector('#pf-category');
 
-    hintEl.textContent = '📍 Looking up details…';
+    hintEl.textContent = 'Checking nearby details…';
     discoveredEl.style.display = 'none';
 
     const info = await lookupPlaceInfo(lat, lng);
@@ -387,8 +396,8 @@ export default class PlaceForm {
     let html = `
       <div style="border-top: 1px solid var(--glass-border); padding-top: var(--space-lg); margin-top: var(--space-md);">
         <div style="display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md);">
-          <span style="font-size: var(--text-sm); font-weight: 600; color: var(--accent);">✨ Discovered Info</span>
-          <span style="font-size: var(--text-xs); color: var(--text-muted);">— tick items to add as timeline entries</span>
+          <span style="font-size: var(--text-sm); font-weight: 600; color: var(--accent);">Optional Timeline Ideas</span>
+          <span style="font-size: var(--text-xs); color: var(--text-muted);">Select any items you want to add now.</span>
         </div>
     `;
 
@@ -406,7 +415,7 @@ export default class PlaceForm {
     if (info.autoEntries.length === 0) {
       html += `
         <div style="font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-sm);">
-          No additional info found. You can add details manually after creating the place.
+          No timeline ideas found. You can add facts manually after saving the place.
         </div>
       `;
     }
@@ -534,7 +543,7 @@ export default class PlaceForm {
     } finally {
       if (saveBtn) {
         saveBtn.disabled = false;
-        saveBtn.textContent = this.isSuggestionMode ? 'Submit Suggestion' : 'Add Place';
+        saveBtn.textContent = this.isSuggestionMode ? 'Submit Suggestion' : 'Save Place';
       }
     }
   }
