@@ -93,6 +93,7 @@ export default class Sidebar {
         if (this.addBtn) {
             if (this.canEditPublished) {
                 this.addBtn.style.display = '';
+                this.addBtn.title = 'Add a new place to this map';
                 this.addBtn.innerHTML = `
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 5v14M5 12h14" />
@@ -101,6 +102,7 @@ export default class Sidebar {
                 `;
             } else if (this.canSubmit && currentUserRole === 'pending') {
                 this.addBtn.style.display = '';
+                this.addBtn.title = 'Suggest a place for moderator review';
                 this.addBtn.innerHTML = `
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 5v14M5 12h14" />
@@ -133,14 +135,14 @@ export default class Sidebar {
 
         if (this.collabStatusEl) {
             if (currentUserRole === 'pending') {
-                this.setCollabStatus('Your access request is in review. You can already suggest places, historic names, and timeline entries while you wait.', 'pending');
+                this.setCollabStatus('Your access request is in review. You can already suggest places, historic names, and timeline entries while you wait.', 'pending', '⏳');
                 this.renderPendingSubmissionSummary(project.id);
             } else if (currentUserRole === 'banned') {
-                this.setCollabStatus('This account currently has read-only access on this map.', 'banned');
+                this.setCollabStatus('This account currently has read-only access on this map.', 'banned', '🔒');
             } else if (currentUserRole === null && this.isSignedIn) {
-                this.setCollabStatus('You are viewing this map in read-only mode. Request access to suggest changes or post on Talk.', 'viewer');
+                this.setCollabStatus('You are viewing this map in read-only mode. Request access to suggest changes or post on Talk.', 'viewer', '👁️');
             } else if (currentUserRole === null) {
-                this.setCollabStatus('Browsing as a guest. Sign in to request access, suggest changes, or post on Talk.', 'guest');
+                this.setCollabStatus('Browsing as a guest. Sign in to request access, suggest changes, or post on Talk.', 'guest', '👋');
             } else {
                 this.setCollabStatus();
             }
@@ -150,10 +152,14 @@ export default class Sidebar {
         this.renderGuideCard();
     }
 
-    setCollabStatus(message = '', state = '') {
+    setCollabStatus(message = '', state = '', icon = '') {
         if (!this.collabStatusEl) return;
-        this.collabStatusEl.style.display = message ? 'block' : 'none';
-        this.collabStatusEl.textContent = message;
+        this.collabStatusEl.style.display = message ? 'flex' : 'none';
+        if (icon) {
+            this.collabStatusEl.innerHTML = `<span class="collab-status-icon">${icon}</span><span>${message}</span>`;
+        } else {
+            this.collabStatusEl.textContent = message;
+        }
         if (state) {
             this.collabStatusEl.dataset.state = state;
         } else {
@@ -277,13 +283,13 @@ export default class Sidebar {
             this.listEl.classList.add('is-empty');
             this.listEl.innerHTML = `
         <div class="empty-state">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
             <circle cx="12" cy="10" r="3"/>
           </svg>
           <h4>${hasFilters ? 'No matching places' : 'No places yet'}</h4>
           <p>${hasFilters
-                ? 'Try a different name, year, alias, or category.'
+                ? 'Try a different search term or category.'
                 : this.getEmptyStateDescription()}</p>
         </div>
       `;
@@ -372,12 +378,12 @@ export default class Sidebar {
 
     getEmptyStateDescription() {
         if (this.canEditPublished) {
-            return 'Add the first place to start building this map.';
+            return 'Click the Add Place button below, then click on the map to drop a marker.';
         }
         if (this.canSubmit) {
-            return 'Suggest the first place and it will go to review before it appears on the map.';
+            return 'Tap Suggest Place, then click the map where the place should go. A moderator will review it.';
         }
-        return 'This map does not have any places yet.';
+        return 'This map has no places yet. Sign in and request access if you\'d like to help build it.';
     }
 
     renderGuideCard() {
@@ -387,15 +393,17 @@ export default class Sidebar {
         if (!this.currentProjectId || !this.hasLoadedPlaces || this.places.length > 0 || hasFilters) {
             this.guideCardEl.style.display = 'none';
             this.guideCardEl.innerHTML = '';
+            // Remove nudge from Guide button when places exist
+            if (this.guideBtn) this.guideBtn.classList.remove('guide-nudge');
             return;
         }
 
         let title = 'Start with one place';
-        let description = 'This map is empty right now. One place, one dated fact, and one source is enough to get it started.';
+        let description = 'This map is empty right now. Drop one marker, add one dated fact, and you\'re up and running.';
         let steps = [
-            'Click Add Place.',
-            'Click the map to drop the marker.',
-            'Save the place, then add the first dated entry.'
+            'Click Add Place below.',
+            'Click anywhere on the map to drop a marker.',
+            'Save it, then add your first dated entry.'
         ];
         let primaryAction = { id: 'add', label: 'Add First Place' };
 
@@ -470,6 +478,11 @@ export default class Sidebar {
                 }
             });
         });
+
+        // Nudge the Guide button when the map is empty
+        if (this.guideBtn) {
+            this.guideBtn.classList.add('guide-nudge');
+        }
     }
 
     setActive(placeId) {

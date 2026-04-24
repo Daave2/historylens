@@ -45,7 +45,7 @@
             style="display:none; font-size: var(--text-xs); padding: 4px 8px;">My Profile</button>
           <button id="btn-auth" class="btn btn-ghost" style="font-size: var(--text-xs); padding: 4px 8px;">Sign
             In</button>
-          <button id="sidebar-toggle" class="icon-btn" aria-label="Toggle sidebar">
+          <button id="sidebar-toggle" class="icon-btn" aria-label="Collapse sidebar" title="Collapse sidebar">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M15 18l-6-6 6-6" />
             </svg>
@@ -86,12 +86,14 @@
             <path d="m21 21-4.3-4.3" />
           </svg>
           <input type="search" id="place-search" name="sidebar-search" placeholder="Search places, names, years..."
-            autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" />
+            autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false"
+            title="Search by place name, historic name, year, or keyword" />
         </div>
 
         <div class="filter-row" style="margin-top: var(--space-sm); width: 100%;">
           <select id="category-filter" class="form-select"
-            style="width: 100%; padding: var(--space-sm) var(--space-md);">
+            style="width: 100%; padding: var(--space-sm) var(--space-md);"
+            title="Filter places by category">
             <option value="">All Categories</option>
             <option value="residential">🏠 Residential</option>
             <option value="commercial">🏪 Commercial</option>
@@ -181,7 +183,7 @@
     <!-- Place Detail Modal -->
     <div id="place-detail-modal" class="modal-overlay" style="display:none;">
       <div class="modal glass-panel modal-large">
-        <button class="modal-close icon-btn" data-close="place-detail-modal">
+        <button class="modal-close icon-btn" data-close="place-detail-modal" aria-label="Close" title="Close">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
@@ -193,7 +195,7 @@
     <!-- Place Form Modal -->
     <div id="place-form-modal" class="modal-overlay" style="display:none;">
       <div class="modal glass-panel">
-        <button class="modal-close icon-btn" data-close="place-form-modal">
+        <button class="modal-close icon-btn" data-close="place-form-modal" aria-label="Close" title="Close">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
@@ -205,7 +207,7 @@
     <!-- Entry Form Modal -->
     <div id="entry-form-modal" class="modal-overlay" style="display:none;">
       <div class="modal glass-panel modal-large">
-        <button class="modal-close icon-btn" data-close="entry-form-modal">
+        <button class="modal-close icon-btn" data-close="entry-form-modal" aria-label="Close" title="Close">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>

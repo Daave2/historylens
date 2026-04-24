@@ -50,6 +50,7 @@ const componentModulePromises = {};
 const GUIDE_STORAGE = {
   seen: 'historylens.quick-guide.shown.v1'
 };
+const GUIDE_PROJECT_PREFIX = 'historylens.project-guide.shown.';
 
 function loadComponentModule(key, loader) {
   if (!componentModulePromises[key]) {
@@ -1018,6 +1019,25 @@ async function initProjectView(project) {
     await syncProjectAccessState({ closeDraftForms: true });
   };
 
+  // Auto-show Guide on first visit to this project
+  const projectGuideKey = `${GUIDE_PROJECT_PREFIX}${project.id}`;
+  try {
+    if (!localStorage.getItem(projectGuideKey)) {
+      localStorage.setItem(projectGuideKey, '1');
+      // Defer slightly so the map renders first
+      window.setTimeout(async () => {
+        const modal = await ensureGuideModal();
+        modal.showProject({
+          canSubmit: permissions.canSubmit,
+          canEditPublished: permissions.canEditPublished,
+          isSignedIn: !!currentUser
+        });
+      }, 600);
+    }
+  } catch {
+    // localStorage may be unavailable; skip silently.
+  }
+
   setGuideModalHandlers({
     onFocusSearch: () => {
       const searchInput = document.getElementById('place-search');
@@ -1194,7 +1214,11 @@ function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.textContent = message;
+
+  const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+  const icon = icons[type] || icons.info;
+
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span>${message}</span>`;
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';

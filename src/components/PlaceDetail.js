@@ -185,7 +185,7 @@ export default class PlaceDetail {
       `
       : `
         <div class="place-fact-empty">
-          ${canProposeCorrections ? 'No historic names recorded yet. Add the first one when you know a former name for this place.' : 'No historic names recorded yet.'}
+          ${canProposeCorrections ? 'No former names recorded yet. Know one? Add it with the button above.' : 'No former names recorded yet.'}
         </div>
       `;
     const aliasPreviewHtml = historicalNames.length > 0
@@ -352,8 +352,12 @@ export default class PlaceDetail {
     if (entriesWithImages.length === 0) {
       timelineContentHtml = `
         <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
           <h4>No timeline entries yet</h4>
-          <p style="margin-bottom: var(--space-md);">${canSuggestOnly ? 'Submit the first historical suggestion for moderator approval.' : 'Add the first piece of history for this place — a photo, a story, or a reference.'}</p>
+          <p>${canSuggestOnly ? 'Be the first to suggest a dated fact for moderator review.' : 'Add the first piece of history — a date, a photo, a story, or a reference.'}</p>
           ${canAddEntry ? `<button class="btn btn-primary" id="timeline-empty-add">${canSuggestOnly ? 'Suggest First Entry' : 'Add First Entry'}</button>` : ''}
         </div>
       `;
@@ -446,8 +450,11 @@ export default class PlaceDetail {
     if (comments.length === 0) {
       commentsInnerHtml += `
         <div class="empty-state" style="padding: var(--space-xl); margin-top: var(--space-md);">
-          <h4>Nothing on Talk yet</h4>
-          <p>Use Talk for source questions, disagreements, or notes that do not belong in the timeline.</p>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <h4>Start the conversation</h4>
+          <p>Use Talk for source questions, disagreements, or notes that don’t belong in the timeline.</p>
         </div>
       `;
     } else {
@@ -591,16 +598,16 @@ export default class PlaceDetail {
       ` : ''}
 
       <div class="place-page-guide">
-        <strong>Start here:</strong>
-        <span>Read the summary, scan the timeline for dated facts, manage historic names, check Changes for edits, and use Talk for questions.</span>
+        <strong>💡 Quick orientation:</strong>
+        <span>Read the <b>Summary</b> for an overview, check <b>Timeline</b> for dated facts, browse <b>Names</b> for former names, see <b>Changes</b> for edit history, and use <b>Talk</b> for questions.</span>
       </div>
 
       <div class="detail-tabs" style="display: flex; gap: var(--space-md); border-bottom: 1px solid var(--glass-border); margin: var(--space-lg) 0;">
-        <button class="tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" data-tab="overview" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'overview' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'overview' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'overview' ? 'var(--accent)' : 'transparent'};">Summary</button>
-        <button class="tab-btn ${this.activeTab === 'timeline' ? 'active' : ''}" data-tab="timeline" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'timeline' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'timeline' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'timeline' ? 'var(--accent)' : 'transparent'};">Timeline <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${entries.length}</span></button>
-        <button class="tab-btn ${this.activeTab === 'names' ? 'active' : ''}" data-tab="names" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'names' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'names' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'names' ? 'var(--accent)' : 'transparent'};">Names <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${historicalNames.length}</span></button>
-        <button class="tab-btn ${this.activeTab === 'history' ? 'active' : ''}" data-tab="history" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'history' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'history' ? 'var(--accent)' : 'transparent'};">Changes <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${recentChangesCount}</span></button>
-        <button class="tab-btn ${this.activeTab === 'discussion' ? 'active' : ''}" data-tab="discussion" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'discussion' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'discussion' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'discussion' ? 'var(--accent)' : 'transparent'};">Talk <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
+        <button class="tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" data-tab="overview" title="Short overview of this place" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'overview' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'overview' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'overview' ? 'var(--accent)' : 'transparent'};">Summary</button>
+        <button class="tab-btn ${this.activeTab === 'timeline' ? 'active' : ''}" data-tab="timeline" title="Dated facts, photos, and sources" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'timeline' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'timeline' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'timeline' ? 'var(--accent)' : 'transparent'};">Timeline <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${entries.length}</span></button>
+        <button class="tab-btn ${this.activeTab === 'names' ? 'active' : ''}" data-tab="names" title="Former, alternate, or disputed names" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'names' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'names' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'names' ? 'var(--accent)' : 'transparent'};">Names <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${historicalNames.length}</span></button>
+        <button class="tab-btn ${this.activeTab === 'history' ? 'active' : ''}" data-tab="history" title="Log of all edits to this place" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'history' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'history' ? 'var(--accent)' : 'transparent'};">Changes <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${recentChangesCount}</span></button>
+        <button class="tab-btn ${this.activeTab === 'discussion' ? 'active' : ''}" data-tab="discussion" title="Questions, source checks, and notes" style="background: none; border: none; padding: var(--space-sm) 0; color: ${this.activeTab === 'discussion' ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight: ${this.activeTab === 'discussion' ? '600' : '500'}; cursor: pointer; border-bottom: 2px solid ${this.activeTab === 'discussion' ? 'var(--accent)' : 'transparent'};">Talk <span class="badge" style="margin-left:4px; padding:2px 6px; font-size:10px;">${comments.length}</span></button>
       </div>
 
       <div id="tab-overview" class="tab-content" style="display: ${this.activeTab === 'overview' ? 'block' : 'none'};">

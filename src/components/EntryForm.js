@@ -37,13 +37,13 @@ export default class EntryForm {
 
       <div class="form-group">
         <label class="form-label">What happened here?</label>
-        <p class="form-hint" style="margin-bottom: var(--space-sm);">Start with a short note. You can add dates, sources, and photos below.</p>
+        <p class="form-hint" style="margin-bottom: var(--space-sm);">Write a short note. You can add dates, sources, and photos below.</p>
         <textarea class="form-textarea" id="ef-summary" placeholder="Example: The building reopened as a boarding house in the early 1970s and stayed in family ownership for two decades." style="min-height:130px;">${escapeHtml(e.summary || '')}</textarea>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Approx year</label>
+          <label class="form-label">When did this happen? <span class="help-tip" data-tip="Even a rough decade like '1920s' works — enter the start year.">?</span></label>
           <input class="form-input" id="ef-year-start" type="number" min="1000" max="2030" placeholder="e.g. 1902" value="${e.yearStart || ''}" />
         </div>
         <div class="form-group">
@@ -53,7 +53,7 @@ export default class EntryForm {
       </div>
 
       <button class="btn btn-ghost" id="ef-toggle-images" style="margin-bottom: var(--space-sm);">
-        ${this.pendingImages.length > 0 ? 'Hide photos and documents' : 'Add photos or documents'}
+        ${this.pendingImages.length > 0 ? 'Hide photos' : '📷 Add photos or documents'}
       </button>
 
       <div class="form-group" id="ef-images-section" style="display: ${this.pendingImages.length > 0 ? 'block' : 'none'};">
@@ -72,11 +72,11 @@ export default class EntryForm {
       </div>
 
       <button class="btn btn-ghost" id="ef-toggle-advanced" style="margin-bottom: var(--space-sm);">
-        ${isEdit ? 'Hide dates, sources, and confidence' : 'Add dates, sources, and confidence'}
+        ${isEdit ? 'Hide dates, sources & confidence' : '🔍 More detail (dates, sources, confidence)'}
       </button>
 
       <div id="ef-advanced-section" style="display: ${isEdit ? 'block' : 'none'};">
-        <p class="form-hint" style="margin-bottom: var(--space-md);">Use this section when you want to pin down date ranges, note where the information came from, or mark uncertainty.</p>
+        <p class="form-hint" style="margin-bottom: var(--space-md);">Pin down date ranges, note where the info came from, or mark how certain you are.</p>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Year End</label>
@@ -101,11 +101,11 @@ export default class EntryForm {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Confidence</label>
+            <label class="form-label">How sure are you? <span class="help-tip" data-tip="Mark your confidence level so others know how solid this is.">?</span></label>
             <select class="form-select" id="ef-confidence">
-              <option value="verified" ${e.confidence === 'verified' ? 'selected' : ''}>✅ Verified — confirmed by multiple sources</option>
-              <option value="likely" ${e.confidence === 'likely' ? 'selected' : ''} ${!e.confidence ? 'selected' : ''}>📌 Likely — reasonable but not fully confirmed</option>
-              <option value="speculative" ${e.confidence === 'speculative' ? 'selected' : ''}>❓ Speculative — educated guess</option>
+              <option value="verified" ${e.confidence === 'verified' ? 'selected' : ''}>✅ Confirmed — backed by multiple sources</option>
+              <option value="likely" ${e.confidence === 'likely' ? 'selected' : ''} ${!e.confidence ? 'selected' : ''}>📌 Probably right — reasonable but not fully confirmed</option>
+              <option value="speculative" ${e.confidence === 'speculative' ? 'selected' : ''}>❓ Best guess — educated estimate</option>
             </select>
           </div>
         </div>
@@ -127,7 +127,7 @@ export default class EntryForm {
       evt.preventDefault();
       const isOpen = advancedSection.style.display !== 'none';
       advancedSection.style.display = isOpen ? 'none' : 'block';
-      advancedToggle.textContent = isOpen ? 'Add dates, sources, and confidence' : 'Hide dates, sources, and confidence';
+      advancedToggle.textContent = isOpen ? '🔍 More detail (dates, sources, confidence)' : 'Hide dates, sources & confidence';
     });
 
     const imagesSection = this.content.querySelector('#ef-images-section');
@@ -136,7 +136,7 @@ export default class EntryForm {
       evt.preventDefault();
       const isOpen = imagesSection.style.display !== 'none';
       imagesSection.style.display = isOpen ? 'none' : 'block';
-      imagesToggle.textContent = isOpen ? 'Add photos or documents' : 'Hide photos and documents';
+      imagesToggle.textContent = isOpen ? '📷 Add photos or documents' : 'Hide photos';
     });
 
     // Image upload

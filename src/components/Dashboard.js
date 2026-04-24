@@ -180,8 +180,14 @@ export default class Dashboard {
             if (!this.currentUser) {
                 grid.innerHTML = `
                 <div class="empty-state">
-                  <p>Sign in to create and manage your own maps.</p>
-                  <button class="btn btn-primary" id="dash-signin-btn" style="margin-top:var(--space-md);">Sign In</button>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+                    <path d="M2 12h20"/>
+                  </svg>
+                  <h4>Sign in to start mapping</h4>
+                  <p>Create and manage your own local history maps once you sign in.</p>
+                  <button class="btn btn-primary" id="dash-signin-btn">Sign In</button>
                 </div>
              `;
                 grid.querySelector('#dash-signin-btn').addEventListener('click', () => {
@@ -206,7 +212,12 @@ export default class Dashboard {
         if (projectsToShow.length === 0) {
             grid.innerHTML += `
             <div class="empty-state">
-              <p>${tab === 'public' ? 'No public maps are available yet.' : 'You have not created any maps yet.'}</p>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+              <h4>${tab === 'public' ? 'No public maps available yet' : 'No maps created yet'}</h4>
+              <p>${tab === 'public' ? 'Public maps will appear here as they\'re created. Check back soon!' : 'Tap "Start a new map" above to create your first one.'}</p>
             </div>
           `;
             return;

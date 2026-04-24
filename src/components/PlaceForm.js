@@ -45,7 +45,7 @@ export default class PlaceForm {
 
       <!-- Address Search Bar -->
       <div class="form-group" style="position: relative;">
-        <label class="form-label">1. Find the location</label>
+        <label class="form-label">1. Find it on the map</label>
         <input class="form-input" id="pf-search" name="place-search" type="search"
                placeholder="Search an address or place name"
                autocomplete="off" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false"
@@ -58,13 +58,13 @@ export default class PlaceForm {
         "></div>
       </div>
 
-      <div style="display:flex; align-items:center; gap: var(--space-sm); margin: var(--space-sm) 0 var(--space-md);">
+      <div style="display:flex; align-items:center; gap: var(--space-sm); margin: var(--space-md) 0 var(--space-lg);">
         <div style="flex:1; height:1px; background: var(--glass-border);"></div>
-        <span style="font-size: var(--text-xs); color: var(--text-muted);">or click the map directly</span>
+        <span style="font-size: var(--text-sm); color: var(--accent); font-weight: 500;">👆 or click anywhere on the map</span>
         <div style="flex:1; height:1px; background: var(--glass-border);"></div>
       </div>
 
-      <div class="form-section-kicker">2. Check the basic details</div>
+      <div class="form-section-kicker">2. Name it</div>
 
       <div class="form-group">
         <label class="form-label">Place Name</label>
@@ -96,15 +96,18 @@ export default class PlaceForm {
         <textarea class="form-textarea" id="pf-description" placeholder="One or two sentences is enough for now." rows="4" style="font-family: var(--font-body); line-height: 1.6; resize: vertical;"></textarea>
       </div>
 
-      <div class="form-section-kicker">3. Save the place</div>
+      <div class="form-section-kicker">3. Save it</div>
 
-      <div class="form-group">
-        <label class="form-label">Location</label>
-        <div class="form-row">
-          <input class="form-input" id="pf-lat" type="number" step="any" placeholder="Latitude" value="${latLng?.lat?.toFixed(6) || ''}" />
-          <input class="form-input" id="pf-lng" type="number" step="any" placeholder="Longitude" value="${latLng?.lng?.toFixed(6) || ''}" />
+      <details style="margin-bottom: var(--space-md);">
+        <summary style="cursor:pointer; font-size: var(--text-xs); color: var(--text-muted); font-weight: 500;">Show coordinates</summary>
+        <div class="form-group" style="margin-top: var(--space-sm);">
+          <label class="form-label">Location</label>
+          <div class="form-row">
+            <input class="form-input" id="pf-lat" type="number" step="any" placeholder="Latitude" value="${latLng?.lat?.toFixed(6) || ''}" />
+            <input class="form-input" id="pf-lng" type="number" step="any" placeholder="Longitude" value="${latLng?.lng?.toFixed(6) || ''}" />
+          </div>
         </div>
-      </div>
+      </details>
 
       <!-- Discovered info panel -->
       <div id="pf-discovered" style="display:none;"></div>

@@ -508,7 +508,11 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+  line-height: 1.5;
 }
 
 #collab-status[data-state="pending"] {
@@ -527,6 +531,13 @@ body {
 #collab-status[data-state="viewer"] {
   background: rgba(148, 163, 184, 0.08);
   border-color: rgba(148, 163, 184, 0.2);
+}
+
+.collab-status-icon {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  line-height: 1;
+  margin-top: 1px;
 }
 
 .inbox-badge {
@@ -564,6 +575,10 @@ body {
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
   white-space: nowrap;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn-primary {
@@ -1156,6 +1171,67 @@ input[type="range"]::-moz-range-thumb {
   100% {
     box-shadow: 0 0 0 0 rgba(230, 160, 78, 0);
   }
+}
+
+/* --- Guide Nudge Animation (continuous pulse for empty-map guide button) --- */
+.guide-nudge {
+  animation: guideNudgePulse 2s var(--ease-out) infinite;
+}
+
+@keyframes guideNudgePulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(230, 160, 78, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(230, 160, 78, 0);
+  }
+}
+
+/* --- Help Tip inline micro-help --- */
+.help-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--bg-hover);
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 4px;
+  position: relative;
+}
+
+.help-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  white-space: nowrap;
+  max-width: 240px;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+  z-index: 10;
+  box-shadow: var(--shadow-sm);
+}
+
+.help-tip:hover::after,
+.help-tip:focus::after {
+  opacity: 1;
 }
 
 /* --- Forms --- */
@@ -1762,7 +1838,16 @@ input[type="range"]::-moz-range-thumb {
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   animation: slideIn var(--duration-normal) var(--ease-spring);
-  max-width: 320px;
+  max-width: 360px;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  font-size: var(--text-base);
+  line-height: 1;
 }
 
 .toast-success {
@@ -1775,6 +1860,12 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(248, 113, 113, 0.15);
   border: 1px solid rgba(248, 113, 113, 0.3);
   color: var(--danger);
+}
+
+.toast-warning {
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--warning);
 }
 
 .toast-info {
@@ -1804,18 +1895,25 @@ input[type="range"]::-moz-range-thumb {
 
 .empty-state svg {
   margin-bottom: var(--space-md);
-  opacity: 0.4;
+  opacity: 0.5;
 }
 
 .empty-state h4 {
   font-size: var(--text-base);
   color: var(--text-secondary);
-  margin-bottom: var(--space-xs);
+  margin-bottom: var(--space-sm);
 }
 
 .empty-state p {
   font-size: var(--text-sm);
-  line-height: 1.5;
+  line-height: 1.6;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.empty-state .btn {
+  margin-top: var(--space-md);
 }
 
 .place-form-helper {
