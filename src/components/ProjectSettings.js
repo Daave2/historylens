@@ -1,6 +1,6 @@
-import { requestAccess, getProjectRoles, getProjectRoleEvents, getAssignableReviewers, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getReviewQueue, updateModerationQueueMeta, reviewModerationSubmission, getProfiles, getProjectInboxCounts } from '../data/store.js';
+import { requestAccess, getProjectRoles, getProjectRoleEvents, getAssignableReviewers, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getReviewQueue, updateModerationQueueMeta, reviewModerationSubmission, getProfiles, getProjectInboxCounts, getPlacesByProject, getTimeEntriesForPlace } from '../data/store.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
-import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType, renderModerationDiffPreview } from '../utils/moderation.js';
+import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType, renderModerationDiffPreview, detectDuplicateWarnings } from '../utils/moderation.js';
 
 export default class ProjectSettings {
     constructor() {
@@ -41,6 +41,7 @@ export default class ProjectSettings {
     }
 
     hide() {
+        if (this._keyboardCleanup) { this._keyboardCleanup(); this._keyboardCleanup = null; }
         this.modal.style.display = 'none';
     }
 
@@ -549,6 +550,8 @@ export default class ProjectSettings {
 
     async renderModerationTab(container) {
         try {
+            // Clean up keyboard shortcuts from previous render
+            if (this._keyboardCleanup) { this._keyboardCleanup(); this._keyboardCleanup = null; }
             const filters = this.moderationFilters || { status: 'pending', type: 'all', priority: 'all' };
             const [roles, reviewers, queue, recentQueue] = await Promise.all([
                 getProjectRoles(this.project.id),
@@ -571,6 +574,27 @@ export default class ProjectSettings {
             const bannableRoles = roles.filter(r => r.role !== 'owner' && r.role !== 'banned');
             const recentReviewed = recentQueue.items.filter(s => s.status !== 'pending').slice(0, 10);
             const queueSchemaReady = queue.schemaReady || submissions.some(s => s.hasQueueFields);
+            const pendingSubmissions = submissions.filter(s => s.status === 'pending');
+
+            // Fetch existing places/entries for duplicate detection on pending submissions
+            let existingPlaces = [];
+            let allExistingEntries = [];
+            if (pendingSubmissions.length > 0) {
+                try {
+                    existingPlaces = await getPlacesByProject(this.project.id);
+                    // Fetch entries for places referenced by pending entry_create submissions
+                    const entryPlaceIds = [...new Set(pendingSubmissions
+                        .filter(s => s.submissionType === 'entry_create')
+                        .map(s => s.payload?.placeId)
+                        .filter(Boolean)
+                    )];
+                    const entryResults = await Promise.all(entryPlaceIds.map(pid => getTimeEntriesForPlace(pid).catch(() => [])));
+                    allExistingEntries = entryResults.flat();
+                } catch (dupErr) {
+                    console.warn('Could not load data for duplicate detection:', dupErr);
+                }
+            }
+
             const profileIds = [...new Set([
                 ...submissions.map(s => s.submitterId),
                 ...submissions.map(s => s.reviewedBy),
@@ -605,6 +629,10 @@ export default class ProjectSettings {
             }[priority] || 'Normal');
             const renderSubmissionCard = (sub) => {
                 const isPending = sub.status === 'pending';
+                const dupWarnings = isPending ? detectDuplicateWarnings(sub, existingPlaces, allExistingEntries) : [];
+                const dupHtml = dupWarnings.length > 0
+                    ? `<div class="mod-dup-warnings">${dupWarnings.map(w => `<div class="mod-dup-warning">⚠️ ${escapeHtml(w)}</div>`).join('')}</div>`
+                    : '';
                 const queueMeta = sub.hasQueueFields
                     ? `
                       <div class="ps-submission-review-meta">
@@ -651,14 +679,16 @@ export default class ProjectSettings {
                     : `<span class="ps-status-pill" data-status="${escapeAttr(sub.status)}">${escapeHtml(formatModerationStatusLabel(sub.status))}</span>`;
 
                 return `
-                  <div class="ps-card ps-submission-card" data-status="${escapeAttr(sub.status)}">
+                  <div class="ps-card ps-submission-card" data-status="${escapeAttr(sub.status)}" data-sub-id="${escapeAttr(sub.id)}">
                     <div class="ps-submission-layout">
+                      ${isPending ? `<label class="mod-bulk-check" title="Select for bulk action"><input type="checkbox" class="mod-sub-check" data-id="${escapeAttr(sub.id)}" /></label>` : ''}
                       <div class="ps-submission-main">
                         <div class="ps-submission-type">${escapeHtml(formatModerationSubmissionType(sub.submissionType))}</div>
                         <div class="ps-submission-summary">${escapeHtml(formatModerationSubmissionSummary(sub))}</div>
                         <div class="ps-submission-meta">
                           by ${escapeHtml(displayProfile(sub.submitterId))} · ${escapeHtml(new Date(sub.createdAt).toLocaleString())}
                         </div>
+                        ${dupHtml}
                         <details class="mod-diff-details" ${isPending ? 'open' : ''}>
                           <summary class="mod-diff-toggle">Details</summary>
                           ${renderModerationDiffPreview(sub)}
@@ -724,6 +754,21 @@ export default class ProjectSettings {
             if (submissions.length === 0) {
                 html += `<div class="ps-empty">No suggestions match these filters.</div>`;
             } else {
+                // Bulk action bar for pending submissions
+                if (pendingSubmissions.length > 0) {
+                    html += `
+                      <div class="mod-bulk-bar" style="display:flex; align-items:center; gap:var(--space-sm); padding:var(--space-sm) 0; border-bottom:1px solid var(--glass-border); margin-bottom:var(--space-sm);">
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted); cursor:pointer;">
+                          <input type="checkbox" id="mod-select-all" /> Select all
+                        </label>
+                        <button class="btn btn-sm btn-primary" id="mod-bulk-approve" disabled>Approve Selected</button>
+                        <button class="btn btn-sm btn-danger" id="mod-bulk-reject" disabled>Reject Selected</button>
+                        <span id="mod-bulk-count" style="font-size:11px; color:var(--text-muted);">0 selected</span>
+                        <span style="flex:1;"></span>
+                        <span style="font-size:11px; color:var(--text-muted);">Keys: J/K navigate · A approve · R reject</span>
+                      </div>
+                    `;
+                }
                 html += submissions.map(renderSubmissionCard).join('');
             }
             html += `</section>`;
@@ -892,6 +937,119 @@ export default class ProjectSettings {
                     }
                 });
             });
+
+            // Bulk select management
+            const updateBulkState = () => {
+                const checks = container.querySelectorAll('.mod-sub-check');
+                const selected = container.querySelectorAll('.mod-sub-check:checked');
+                const count = selected.length;
+                const approveBtn = container.querySelector('#mod-bulk-approve');
+                const rejectBtn = container.querySelector('#mod-bulk-reject');
+                const countEl = container.querySelector('#mod-bulk-count');
+                const selectAll = container.querySelector('#mod-select-all');
+
+                if (approveBtn) approveBtn.disabled = count === 0;
+                if (rejectBtn) rejectBtn.disabled = count === 0;
+                if (countEl) countEl.textContent = `${count} selected`;
+                if (selectAll) selectAll.checked = checks.length > 0 && count === checks.length;
+            };
+
+            container.querySelector('#mod-select-all')?.addEventListener('change', (e) => {
+                container.querySelectorAll('.mod-sub-check').forEach(cb => { cb.checked = e.target.checked; });
+                updateBulkState();
+            });
+
+            container.querySelectorAll('.mod-sub-check').forEach(cb => {
+                cb.addEventListener('change', updateBulkState);
+            });
+
+            // Bulk approve
+            container.querySelector('#mod-bulk-approve')?.addEventListener('click', async () => {
+                const selectedIds = [...container.querySelectorAll('.mod-sub-check:checked')].map(cb => cb.dataset.id);
+                if (selectedIds.length === 0) return;
+                const note = await this.promptNote({
+                    title: `Bulk Approve ${selectedIds.length} Submissions`,
+                    message: 'Optional note for all approved submissions:',
+                    placeholder: 'Add a note…',
+                    confirmLabel: `Approve ${selectedIds.length}`
+                });
+                try {
+                    for (const id of selectedIds) {
+                        await reviewModerationSubmission(id, { decision: 'approved', note });
+                    }
+                    if (this.handlers.onRefreshRequired) this.handlers.onRefreshRequired();
+                    this.notifyInboxChanged();
+                    this.renderModerationTab(container);
+                } catch (err) {
+                    console.error(err);
+                    this.showInlineFeedback(container, `Bulk approve failed: ${err?.message || 'Unknown error'}`);
+                }
+            });
+
+            // Bulk reject
+            container.querySelector('#mod-bulk-reject')?.addEventListener('click', async () => {
+                const selectedIds = [...container.querySelectorAll('.mod-sub-check:checked')].map(cb => cb.dataset.id);
+                if (selectedIds.length === 0) return;
+                const note = await this.promptNote({
+                    title: `Reject ${selectedIds.length} Submissions`,
+                    message: 'Rejection reason shown to all contributors:',
+                    placeholder: 'Explain why these were rejected…',
+                    confirmLabel: `Reject ${selectedIds.length}`
+                });
+                try {
+                    for (const id of selectedIds) {
+                        await reviewModerationSubmission(id, { decision: 'rejected', note });
+                    }
+                    this.notifyInboxChanged();
+                    this.renderModerationTab(container);
+                } catch (err) {
+                    console.error(err);
+                    this.showInlineFeedback(container, `Bulk reject failed: ${err?.message || 'Unknown error'}`);
+                }
+            });
+
+            // Keyboard shortcuts for the review queue
+            let focusedCardIndex = -1;
+            const pendingCards = [...container.querySelectorAll('.ps-submission-card[data-status="pending"]')];
+
+            const setFocusedCard = (index) => {
+                pendingCards.forEach(card => card.classList.remove('mod-card-focused'));
+                if (index >= 0 && index < pendingCards.length) {
+                    focusedCardIndex = index;
+                    pendingCards[index].classList.add('mod-card-focused');
+                    pendingCards[index].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                } else {
+                    focusedCardIndex = -1;
+                }
+            };
+
+            const handleKeyboardShortcut = (event) => {
+                // Only handle when the modal is visible and focus is not in an input/textarea/select
+                if (this.modal.style.display === 'none') return;
+                if (event.target.matches('input, textarea, select')) return;
+                if (pendingCards.length === 0) return;
+
+                const key = event.key.toLowerCase();
+                if (key === 'j') {
+                    event.preventDefault();
+                    setFocusedCard(Math.min(focusedCardIndex + 1, pendingCards.length - 1));
+                } else if (key === 'k') {
+                    event.preventDefault();
+                    setFocusedCard(Math.max(focusedCardIndex - 1, 0));
+                } else if (key === 'a' && focusedCardIndex >= 0) {
+                    event.preventDefault();
+                    const approveBtn = pendingCards[focusedCardIndex]?.querySelector('.mod-sub-approve');
+                    approveBtn?.click();
+                } else if (key === 'r' && focusedCardIndex >= 0) {
+                    event.preventDefault();
+                    const rejectBtn = pendingCards[focusedCardIndex]?.querySelector('.mod-sub-reject');
+                    rejectBtn?.click();
+                }
+            };
+
+            document.addEventListener('keydown', handleKeyboardShortcut);
+            // Store cleanup reference so we can remove it if the tab re-renders
+            this._keyboardCleanup = () => document.removeEventListener('keydown', handleKeyboardShortcut);
 
             // Ban button
             container.querySelector('#mod-ban-btn')?.addEventListener('click', async (e) => {

@@ -116,7 +116,10 @@ Current status (Phase 25):
 - ✅ Store layer has CRUD for sources + batch entry source lookups.
 - ✅ Timeline entries render structured source citation chips.
 - ✅ EntryForm has inline source search/create/link workflow.
-- Remaining: bulk review tools, moderation guardrails (duplicate detection), contributor feedback loop enhancements.
+- ✅ Bulk review tools: select-all checkbox, bulk approve/reject with shared note prompt.
+- ✅ Keyboard shortcuts: J/K navigate pending cards, A approve, R reject (scoped to modal).
+- ✅ Duplicate detection: warns on nearby places (<50m) or same-name/same-year entries.
+- Remaining: contributor feedback loop enhancements ("needs changes" status).
 
 ## Phase 26: Scale The Read Path
 

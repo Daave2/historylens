@@ -207,3 +207,52 @@ export function renderModerationDiffPreview(submission) {
 
     return '';
 }
+
+/**
+ * Check a submission for possible duplicates against existing places/entries.
+ * Returns an array of warning strings (empty = no duplicates found).
+ */
+export function detectDuplicateWarnings(submission, existingPlaces = [], existingEntries = []) {
+    const warnings = [];
+    const payload = submission?.payload || {};
+    const type = submission?.submissionType;
+
+    if (type === 'place_create') {
+        const lat = Number(payload.lat);
+        const lng = Number(payload.lng);
+        const name = (payload.name || '').toLowerCase().trim();
+
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            for (const place of existingPlaces) {
+                const dist = haversineDistanceMeters(lat, lng, place.lat, place.lng);
+                if (dist < 50) {
+                    warnings.push(`Very close to "${place.name}" (${dist.toFixed(0)}m away)`);
+                }
+                if (name && place.name.toLowerCase().trim() === name && dist < 500) {
+                    warnings.push(`Same name as existing place "${place.name}" (${dist.toFixed(0)}m away)`);
+                }
+            }
+        }
+    }
+
+    if (type === 'entry_create') {
+        const placeId = payload.placeId || submission?.placeId;
+        const title = (payload.title || '').toLowerCase().trim();
+        const yearStart = Number(payload.yearStart);
+
+        if (placeId && (title || Number.isFinite(yearStart))) {
+            const placeEntries = existingEntries.filter(e => e.placeId === placeId);
+            for (const entry of placeEntries) {
+                const sameYear = Number.isFinite(yearStart) && entry.yearStart === yearStart;
+                const sameTitle = title && (entry.title || '').toLowerCase().trim() === title;
+                if (sameYear && sameTitle) {
+                    warnings.push(`Possible duplicate: "${entry.title}" (${entry.yearStart}) already exists on this place`);
+                } else if (sameTitle) {
+                    warnings.push(`Same title as existing entry: "${entry.title}"`);
+                }
+            }
+        }
+    }
+
+    return warnings;
+}
