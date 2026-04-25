@@ -23,11 +23,13 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - Checked the guest browser path on localhost; editor-only enrichment rendering is covered by the mocked smoke test until editor smoke credentials exist.
 - Added research-link launch pads to research leads so users can jump straight to maps, newspapers, archives, listings, or web searches.
 - Render saved research lead links as timeline chips while hiding the stored URL trail from the main entry summary.
+- Added the Phase 24 collaboration/scale foundation migration with review queue metadata, access audit events, scale indexes, and tuned RLS helpers.
+- Added bounded review queue/store helpers, access activity rendering, priority/reviewer assignment controls, and `npm run smoke:collab-scale`.
 
 ## Remaining
 
 1. Apply `supabase/phase23_comment_policy_alignment.sql` to the live Supabase project.
-2. Begin the collaboration and scale roadmap in `PROJECT_COLLAB_SCALE_PLAN.md`, starting with the Phase 24 foundation migration and paginated review queue.
+2. Apply `supabase/phase24_collab_scale_foundation.sql` to the live Supabase project.
 3. Configure smoke-test accounts locally or in CI:
    - `HISTORYLENS_SMOKE_OWNER_EMAIL`
    - `HISTORYLENS_SMOKE_OWNER_PASSWORD`

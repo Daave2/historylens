@@ -1,4 +1,4 @@
-import { requestAccess, getProjectRoles, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getModerationSubmissions, reviewModerationSubmission, getProfiles, getProjectInboxCounts } from '../data/store.js';
+import { requestAccess, getProjectRoles, getProjectRoleEvents, getAssignableReviewers, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getReviewQueue, updateModerationQueueMeta, reviewModerationSubmission, getProfiles, getProjectInboxCounts } from '../data/store.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
 import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
 
@@ -6,7 +6,8 @@ export default class ProjectSettings {
     constructor() {
         this.moderationFilters = {
             status: 'pending',
-            type: 'all'
+            type: 'all',
+            priority: 'all'
         };
         this.createDom();
     }
@@ -360,15 +361,43 @@ export default class ProjectSettings {
 
     async renderManageList(container) {
         try {
-            const roles = await getProjectRoles(this.project.id);
+            const [roles, roleEvents] = await Promise.all([
+                getProjectRoles(this.project.id),
+                getProjectRoleEvents(this.project.id, { limit: 12 })
+            ]);
             const pendingRoles = roles.filter(r => r.role === 'pending');
             const activeRoles = roles.filter(r => r.role !== 'pending' && r.role !== 'banned');
+            const eventProfileIds = [...new Set(
+                roleEvents.flatMap(event => [event.targetUserId, event.actorId]).filter(Boolean)
+            )];
+            const eventProfiles = await getProfiles(eventProfileIds);
 
             const renderPerson = (r) => {
                 const authorDisplay = r.email.display_name || (r.email.email ? r.email.email.split('@')[0] : 'Unknown');
                 const seed = r.email.display_name || r.email.email || 'user';
                 const avatarUrl = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(seed)}&backgroundColor=1f2937&textColor=f3f4f6`;
                 return { authorDisplay, avatarUrl };
+            };
+            const displayProfile = (userId) => {
+                const profile = eventProfiles[userId];
+                if (!profile) return 'Unknown user';
+                return profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Unknown user');
+            };
+            const roleEventLabel = (event) => {
+                const action = {
+                    request: 'requested access',
+                    grant: 'was granted access',
+                    approve: 'was approved',
+                    reject: 'request was rejected',
+                    promote: 'was promoted',
+                    demote: 'was demoted',
+                    ban: 'was banned',
+                    unban: 'was unbanned',
+                    remove: 'was removed',
+                    update: 'role changed'
+                }[event.action] || 'changed';
+                const roleTrail = [event.previousRole, event.newRole].filter(Boolean).join(' → ');
+                return roleTrail ? `${action} (${roleTrail})` : action;
             };
 
             let html = `
@@ -456,6 +485,29 @@ export default class ProjectSettings {
             }
             html += `</section>`;
 
+            html += `
+              <section class="ps-section">
+                <div class="ps-section-heading">
+                  <h4>Access Activity</h4>
+                  <p>Recent role and access decisions for this project.</p>
+                </div>
+            `;
+            if (roleEvents.length === 0) {
+                html += `<div class="ps-empty">No access activity has been logged yet.</div>`;
+            } else {
+                html += `<ul style="list-style:none; padding:0; margin:0;">`;
+                html += roleEvents.map((event) => `
+                  <li style="padding: 6px 0; border-bottom: 1px solid var(--bg-hover); font-size: 12px; color: var(--text-secondary);">
+                    <strong style="color:var(--text-primary);">${escapeHtml(displayProfile(event.targetUserId))}</strong>
+                    ${escapeHtml(roleEventLabel(event))}
+                    ${event.actorId ? ` · by ${escapeHtml(displayProfile(event.actorId))}` : ''}
+                    · ${escapeHtml(new Date(event.createdAt).toLocaleString())}
+                  </li>
+                `).join('');
+                html += `</ul>`;
+            }
+            html += `</section>`;
+
             container.innerHTML = html;
             this.notifyInboxChanged();
 
@@ -497,17 +549,34 @@ export default class ProjectSettings {
 
     async renderModerationTab(container) {
         try {
-            const [roles, submissions] = await Promise.all([
+            const filters = this.moderationFilters || { status: 'pending', type: 'all', priority: 'all' };
+            const [roles, reviewers, queue, recentQueue] = await Promise.all([
                 getProjectRoles(this.project.id),
-                getModerationSubmissions(this.project.id, { limit: 120 })
+                getAssignableReviewers(this.project.id),
+                getReviewQueue(this.project.id, {
+                    limit: 40,
+                    status: filters.status,
+                    type: filters.type,
+                    priority: filters.priority
+                }),
+                getReviewQueue(this.project.id, {
+                    limit: 10,
+                    status: 'all',
+                    type: 'all',
+                    priority: 'all'
+                })
             ]);
+            const submissions = queue.items;
             const bannedRoles = roles.filter(r => r.role === 'banned');
             const bannableRoles = roles.filter(r => r.role !== 'owner' && r.role !== 'banned');
-            const recentReviewed = submissions.filter(s => s.status !== 'pending').slice(0, 10);
-            const filters = this.moderationFilters || { status: 'pending', type: 'all' };
+            const recentReviewed = recentQueue.items.filter(s => s.status !== 'pending').slice(0, 10);
+            const queueSchemaReady = queue.schemaReady || submissions.some(s => s.hasQueueFields);
             const profileIds = [...new Set([
                 ...submissions.map(s => s.submitterId),
-                ...submissions.map(s => s.reviewedBy)
+                ...submissions.map(s => s.reviewedBy),
+                ...submissions.map(s => s.assignedTo),
+                ...recentReviewed.map(s => s.submitterId),
+                ...recentReviewed.map(s => s.reviewedBy)
             ].filter(Boolean))];
             const profileMap = await getProfiles(profileIds);
 
@@ -517,24 +586,33 @@ export default class ProjectSettings {
                 return profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Unknown user');
             };
 
-            const countForStatus = (status) => submissions.filter(s => s.status === status).length;
-            const filteredSubmissions = submissions.filter((submission) => {
-                const statusMatch = filters.status === 'all' || submission.status === filters.status;
-                const typeMatch = filters.type === 'all' || submission.submissionType === filters.type;
-                return statusMatch && typeMatch;
-            });
-
-            const statusOption = (value, label, count = null) => `
+            const statusOption = (value, label) => `
               <option value="${escapeAttr(value)}" ${filters.status === value ? 'selected' : ''}>
-                ${escapeHtml(count === null ? label : `${label} (${count})`)}
+                ${escapeHtml(label)}
               </option>
             `;
             const typeOption = (value, label) => `
               <option value="${escapeAttr(value)}" ${filters.type === value ? 'selected' : ''}>${escapeHtml(label)}</option>
             `;
-
+            const priorityOption = (value, label) => `
+              <option value="${escapeAttr(value)}" ${filters.priority === value ? 'selected' : ''}>${escapeHtml(label)}</option>
+            `;
+            const priorityLabel = (priority) => ({
+                low: 'Low',
+                normal: 'Normal',
+                high: 'High',
+                urgent: 'Urgent'
+            }[priority] || 'Normal');
             const renderSubmissionCard = (sub) => {
                 const isPending = sub.status === 'pending';
+                const queueMeta = sub.hasQueueFields
+                    ? `
+                      <div class="ps-submission-review-meta">
+                        Priority: ${escapeHtml(priorityLabel(sub.priority))}
+                        · Assigned: ${escapeHtml(sub.assignedTo ? displayProfile(sub.assignedTo) : 'Unassigned')}
+                      </div>
+                    `
+                    : '';
                 const reviewedMeta = sub.status !== 'pending'
                     ? `
                       <div class="ps-submission-review-meta">
@@ -550,6 +628,22 @@ export default class ProjectSettings {
                 const actions = isPending
                     ? `
                       <div class="ps-submission-actions">
+                        ${sub.hasQueueFields ? `
+                          <select class="form-select mod-sub-assignee" data-id="${escapeAttr(sub.id)}" style="font-size:11px; padding:4px 8px;">
+                            <option value="">Unassigned</option>
+                            ${reviewers.map((reviewer) => `
+                              <option value="${escapeAttr(reviewer.userId)}" ${sub.assignedTo === reviewer.userId ? 'selected' : ''}>
+                                ${escapeHtml(`${reviewer.displayName} (${reviewer.role})`)}
+                              </option>
+                            `).join('')}
+                          </select>
+                          <select class="form-select mod-sub-priority" data-id="${escapeAttr(sub.id)}" style="font-size:11px; padding:4px 8px;">
+                            <option value="low" ${sub.priority === 'low' ? 'selected' : ''}>Low</option>
+                            <option value="normal" ${sub.priority === 'normal' ? 'selected' : ''}>Normal</option>
+                            <option value="high" ${sub.priority === 'high' ? 'selected' : ''}>High</option>
+                            <option value="urgent" ${sub.priority === 'urgent' ? 'selected' : ''}>Urgent</option>
+                          </select>
+                        ` : ''}
                         <button class="btn btn-sm btn-primary mod-sub-approve" data-id="${escapeAttr(sub.id)}">Approve</button>
                         <button class="btn btn-sm btn-danger mod-sub-reject" data-id="${escapeAttr(sub.id)}">Reject</button>
                       </div>
@@ -565,6 +659,7 @@ export default class ProjectSettings {
                         <div class="ps-submission-meta">
                           by ${escapeHtml(displayProfile(sub.submitterId))} · ${escapeHtml(new Date(sub.createdAt).toLocaleString())}
                         </div>
+                        ${queueMeta}
                         ${reviewedMeta}
                         ${reviewerNote}
                       </div>
@@ -583,37 +678,49 @@ export default class ProjectSettings {
 
             html += `
         <section class="ps-section">
-          <div class="ps-section-heading">
-            <h4>Suggestion Queue</h4>
-            <p>Review community submissions by status and type.</p>
-          </div>
-          <div class="ps-filter-row">
-            <label class="ps-filter-field">
-              <span>Status</span>
-              <select class="form-select mod-filter-status">
-                ${statusOption('pending', 'Pending', countForStatus('pending'))}
-                ${statusOption('approved', 'Approved', countForStatus('approved'))}
-                ${statusOption('rejected', 'Declined', countForStatus('rejected'))}
-                ${statusOption('all', 'All', submissions.length)}
-              </select>
-            </label>
-            <label class="ps-filter-field">
-              <span>Type</span>
-              <select class="form-select mod-filter-type">
+	          <div class="ps-section-heading">
+	            <h4>Suggestion Queue</h4>
+	            <p>Review community submissions by status, type, and priority.</p>
+	          </div>
+	          <div class="ps-filter-row">
+	            <label class="ps-filter-field">
+	              <span>Status</span>
+	              <select class="form-select mod-filter-status">
+	                ${statusOption('pending', 'Pending')}
+	                ${statusOption('approved', 'Approved')}
+	                ${statusOption('rejected', 'Declined')}
+	                ${statusOption('all', 'All')}
+	              </select>
+	            </label>
+	            <label class="ps-filter-field">
+	              <span>Type</span>
+	              <select class="form-select mod-filter-type">
                 ${typeOption('all', 'All Types')}
                 ${typeOption('place_create', 'New Place')}
                 ${typeOption('entry_create', 'Timeline Entry')}
                 ${typeOption('place_move', 'Location Correction')}
-                ${typeOption('place_name_alias', 'Historical Name')}
-              </select>
-            </label>
-          </div>
-      `;
+	                ${typeOption('place_name_alias', 'Historical Name')}
+	              </select>
+	            </label>
+	            ${queueSchemaReady ? `
+	              <label class="ps-filter-field">
+	                <span>Priority</span>
+	                <select class="form-select mod-filter-priority">
+	                  ${priorityOption('all', 'All Priorities')}
+	                  ${priorityOption('urgent', 'Urgent')}
+	                  ${priorityOption('high', 'High')}
+	                  ${priorityOption('normal', 'Normal')}
+	                  ${priorityOption('low', 'Low')}
+	                </select>
+	              </label>
+	            ` : ''}
+	          </div>
+	      `;
 
-            if (filteredSubmissions.length === 0) {
+            if (submissions.length === 0) {
                 html += `<div class="ps-empty">No suggestions match these filters.</div>`;
             } else {
-                html += filteredSubmissions.map(renderSubmissionCard).join('');
+                html += submissions.map(renderSubmissionCard).join('');
             }
             html += `</section>`;
 
@@ -701,6 +808,42 @@ export default class ProjectSettings {
                     type: event.target.value || 'all'
                 };
                 this.renderModerationTab(container);
+            });
+
+            container.querySelector('.mod-filter-priority')?.addEventListener('change', (event) => {
+                this.moderationFilters = {
+                    ...this.moderationFilters,
+                    priority: event.target.value || 'all'
+                };
+                this.renderModerationTab(container);
+            });
+
+            container.querySelectorAll('.mod-sub-priority').forEach(sel => {
+                sel.addEventListener('change', async (event) => {
+                    sel.disabled = true;
+                    try {
+                        await updateModerationQueueMeta(sel.dataset.id, { priority: event.target.value });
+                        this.renderModerationTab(container);
+                    } catch (err) {
+                        console.error(err);
+                        this.showInlineFeedback(container, err?.message || 'Failed to update priority');
+                        sel.disabled = false;
+                    }
+                });
+            });
+
+            container.querySelectorAll('.mod-sub-assignee').forEach(sel => {
+                sel.addEventListener('change', async (event) => {
+                    sel.disabled = true;
+                    try {
+                        await updateModerationQueueMeta(sel.dataset.id, { assignedTo: event.target.value || null });
+                        this.renderModerationTab(container);
+                    } catch (err) {
+                        console.error(err);
+                        this.showInlineFeedback(container, err?.message || 'Failed to update reviewer assignment');
+                        sel.disabled = false;
+                    }
+                });
             });
 
             container.querySelectorAll('.mod-sub-approve').forEach(btn => {

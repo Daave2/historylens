@@ -124,6 +124,24 @@ const mapSubmission = (row) => ({
     reviewerNote: row.reviewer_note || '',
     reviewedBy: row.reviewed_by || null,
     reviewedAt: row.reviewed_at ? new Date(row.reviewed_at) : null,
+    assignedTo: row.assigned_to || null,
+    priority: row.priority || 'normal',
+    reviewStartedAt: row.review_started_at ? new Date(row.review_started_at) : null,
+    internalNote: row.internal_note || '',
+    hasQueueFields: Object.prototype.hasOwnProperty.call(row, 'priority'),
+    createdAt: new Date(row.created_at)
+});
+
+const mapProjectRoleEvent = (row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    roleId: row.role_id || null,
+    targetUserId: row.target_user_id,
+    actorId: row.actor_id || null,
+    action: row.action,
+    previousRole: row.previous_role || null,
+    newRole: row.new_role || null,
+    note: row.note || '',
     createdAt: new Date(row.created_at)
 });
 
@@ -131,6 +149,7 @@ const PRIMARY_IMAGE_BUCKET = 'entry_images';
 const FALLBACK_IMAGE_BUCKET = 'place-images';
 
 const SUBMISSION_TYPES = new Set(['place_create', 'entry_create', 'place_move', 'place_name_alias']);
+const REVIEW_QUEUE_SELECT = 'id, project_id, submitter_id, submission_type, target_place_id, payload, status, reviewer_note, reviewed_by, reviewed_at, assigned_to, priority, review_started_at, internal_note, created_at';
 
 function encodeStoragePath(bucket, path) {
     return bucket === PRIMARY_IMAGE_BUCKET ? path : `${bucket}::${path}`;
@@ -390,6 +409,47 @@ export async function getProjectRoles(projectId) {
     }));
 }
 
+export async function getProjectRoleEvents(projectId, { limit = 40 } = {}) {
+    const { data, error } = await supabase
+        .from('project_role_events')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        throw error;
+    }
+
+    return (data || []).map(mapProjectRoleEvent);
+}
+
+export async function getAssignableReviewers(projectId) {
+    const [project, roles] = await Promise.all([
+        getProject(projectId),
+        getProjectRoles(projectId)
+    ]);
+    const adminRoles = roles.filter((role) => role.role === 'admin');
+    const reviewerIds = [...new Set([
+        project?.ownerId,
+        ...adminRoles.map((role) => role.user_id)
+    ].filter(Boolean))];
+    const profiles = await getProfiles(reviewerIds);
+
+    return reviewerIds.map((userId) => {
+        const profile = profiles[userId] || {};
+        return {
+            userId,
+            role: userId === project?.ownerId ? 'owner' : 'admin',
+            email: profile.email || '',
+            displayName: profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Unknown user'),
+            avatarUrl: profile.avatar_url || null
+        };
+    });
+}
+
 export async function requestAccess(projectId) {
     const session = await getSession();
     if (!session) throw new Error("Must be signed in");
@@ -587,6 +647,89 @@ export async function getModerationSubmissions(projectId, { limit = 100, statuse
         throw error;
     }
     return (data || []).map(mapSubmission);
+}
+
+export async function getReviewQueue(projectId, { limit = 40, status = 'pending', type = 'all', priority = 'all', cursor = null } = {}) {
+    let query = supabase
+        .from('moderation_submissions')
+        .select(REVIEW_QUEUE_SELECT)
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(limit + 1);
+
+    if (status && status !== 'all') {
+        query = query.eq('status', status);
+    }
+
+    if (type && type !== 'all') {
+        query = query.eq('submission_type', type);
+    }
+
+    if (priority && priority !== 'all') {
+        query = query.eq('priority', priority);
+    }
+
+    if (cursor?.createdAt) {
+        query = query.lt('created_at', cursor.createdAt);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+        if (isMissingSchemaError(error)) {
+            const fallback = await getModerationSubmissions(projectId, {
+                limit,
+                statuses: status && status !== 'all' ? [status] : []
+            });
+            const filtered = fallback.filter((submission) => (
+                (!type || type === 'all' || submission.submissionType === type)
+                && (!priority || priority === 'all' || submission.priority === priority)
+            ));
+            return {
+                items: filtered.slice(0, limit),
+                nextCursor: null,
+                schemaReady: false
+            };
+        }
+        console.error(error);
+        throw error;
+    }
+
+    const rows = data || [];
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(mapSubmission);
+    const last = hasMore ? items[items.length - 1] : null;
+
+    return {
+        items,
+        nextCursor: last ? { createdAt: last.createdAt.toISOString(), id: last.id } : null,
+        schemaReady: true
+    };
+}
+
+export async function updateModerationQueueMeta(submissionId, { assignedTo, priority, reviewStartedAt, internalNote } = {}) {
+    const update = {};
+    if (assignedTo !== undefined) update.assigned_to = assignedTo || null;
+    if (priority !== undefined) update.priority = priority || 'normal';
+    if (reviewStartedAt !== undefined) update.review_started_at = reviewStartedAt || null;
+    if (internalNote !== undefined) update.internal_note = internalNote || '';
+
+    if (Object.keys(update).length === 0) return null;
+
+    const { data, error } = await supabase
+        .from('moderation_submissions')
+        .update(update)
+        .eq('id', submissionId)
+        .select()
+        .single();
+
+    if (error) {
+        if (isMissingSchemaError(error)) {
+            throw new Error('The Phase 24 collaboration scale migration has not been applied yet.');
+        }
+        console.error(error);
+        throw error;
+    }
+    return mapSubmission(data);
 }
 
 export async function getMyModerationSubmissions(projectId, { limit = 20, statuses = [] } = {}) {

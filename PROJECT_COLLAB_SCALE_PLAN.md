@@ -224,24 +224,18 @@ Definition of done:
 
 ## Recommended Next Sprint
 
-Start with the least flashy work because it unlocks everything else:
+The first foundation slice has been implemented locally:
 
-1. Create `supabase/phase24_collab_scale_foundation.sql`.
-   - Add missing composite indexes.
-   - Add audit tables for role/access events.
-   - Add moderation queue fields for assignment and priority.
-   - Tune helper functions with explicit search paths.
+- `supabase/phase24_collab_scale_foundation.sql` adds review queue metadata, access audit events, scale indexes, and tuned helper functions.
+- Store helpers now expose a bounded review queue, assignable reviewers, access activity events, and queue metadata updates.
+- Project Settings uses the bounded queue and shows access activity plus priority and reviewer assignment controls when the migration is present.
+- `npm run smoke:collab-scale` checks that the Phase 24 foundation files remain wired into the repo.
 
-2. Add store wrappers and smoke coverage.
-   - `getReviewQueue()` with status/type/cursor/limit.
-   - Role/access audit read helpers.
-   - Smoke test for review queue pagination and inbox counts.
+Next, continue with the remaining Phase 24/25 pieces:
 
-3. Update Project Settings.
-   - Replace fixed `limit: 120` review loading with paginated queue loading.
-   - Show role/access history.
-   - Add reviewer assignment and priority controls only for owner/admin.
-
+1. Apply the Phase 24 migration to the live Supabase project.
+2. Add richer moderation diff previews for place, entry, move, and historical-name submissions.
+3. Add structured `sources` / `entry_sources` tables so research links stop living in entry summaries.
 4. Build the map snapshot RPC after the review queue is stable.
    - This is the bigger frontend shift, so do it after the moderation/admin path is cleaner.
 
