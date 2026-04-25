@@ -191,7 +191,10 @@ const getImageUrl = (path) => {
 
 function isMissingSchemaError(error) {
     const message = (error?.message || '').toLowerCase();
-    return error?.code === '42P01' || error?.code === '42703' || message.includes('does not exist');
+    return error?.code === '42P01' || error?.code === '42703'
+        || message.includes('does not exist')
+        || message.includes('schema cache')
+        || message.includes('could not find');
 }
 
 function safeInt(value, fallback = null) {
