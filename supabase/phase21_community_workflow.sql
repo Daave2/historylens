@@ -338,6 +338,9 @@ DECLARE
   v_prev_lng DOUBLE PRECISION;
   v_reason TEXT;
   v_item JSONB;
+  v_entry_id UUID;
+  v_source_id UUID;
+  v_source_project_match BOOLEAN;
 BEGIN
   v_decision := lower(coalesce(p_decision, ''));
   IF v_decision NOT IN ('approved', 'rejected') THEN
@@ -447,7 +450,26 @@ BEGIN
           coalesce(v_payload->>'sourceType', 'user'),
           coalesce(v_payload->>'confidence', 'likely'),
           v_submission.submitter_id
-        );
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_source_id := CASE
+          WHEN coalesce(v_payload->>'linkedSourceId', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            THEN (v_payload->>'linkedSourceId')::uuid
+          ELSE NULL
+        END;
+        IF v_source_id IS NOT NULL
+          AND to_regclass('public.sources') IS NOT NULL
+          AND to_regclass('public.entry_sources') IS NOT NULL THEN
+          EXECUTE 'SELECT EXISTS (SELECT 1 FROM public.sources WHERE id = $1 AND project_id = $2)'
+          INTO v_source_project_match
+          USING v_source_id, v_submission.project_id;
+
+          IF v_source_project_match THEN
+            EXECUTE 'INSERT INTO public.entry_sources (entry_id, source_id) VALUES ($1, $2) ON CONFLICT DO NOTHING'
+            USING v_entry_id, v_source_id;
+          END IF;
+        END IF;
 
       WHEN 'place_move' THEN
         v_place_id := coalesce(v_submission.target_place_id, nullif(v_payload->>'placeId', '')::uuid);

@@ -1,9 +1,9 @@
-import { getPlacesByProject, getTimeEntriesForPlaces, getPrimaryPlaceImages, getMySubmissionSummary, getMyModerationSubmissions, getProfiles, getProjectInboxCounts } from '../data/store.js';
+import { getPlacesByProject, getTimeEntriesForPlaces, getPrimaryPlaceImages, getMySubmissionSummary, getMyModerationSubmissions, getProfiles, getProjectInboxCounts, getProjectMapSnapshot } from '../data/store.js';
 import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
 
 export default class Sidebar {
-    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange }) {
+    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange, onQueryChange }) {
         this.el = document.getElementById('sidebar');
         this.listEl = document.getElementById('place-list');
         this.countEl = document.getElementById('place-count');
@@ -34,10 +34,17 @@ export default class Sidebar {
         this.onProjectEdit = onProjectEdit;
         this.onRequestAccess = onRequestAccess;
         this.onFilterChange = onFilterChange;
+        this.onQueryChange = onQueryChange;
         this.places = [];
         this.entriesByPlaceId = {};
+        this.placeSummariesById = {};
+        this.markerStatesByPlaceId = {};
         this.primaryImagesByPlaceId = {};
         this.hasLoadedPlaces = false;
+        this.usesBoundedSnapshots = false;
+        this.snapshotHasMore = false;
+        this.snapshotProjectHasPlaces = null;
+        this.loadRequestToken = 0;
         this.activeId = null;
         this.renderGeneration = 0;
 
@@ -52,8 +59,8 @@ export default class Sidebar {
             this.refreshInboxBadge();
         });
         if (this.collabRequestBtn) this.collabRequestBtn.addEventListener('click', () => onRequestAccess?.());
-        this.searchInput.addEventListener('input', () => this.filterPlaces());
-        if (this.categoryFilter) this.categoryFilter.addEventListener('change', () => this.filterPlaces());
+        this.searchInput.addEventListener('input', () => this.handleQueryInput());
+        if (this.categoryFilter) this.categoryFilter.addEventListener('change', () => this.handleQueryInput());
 
         // Editable project name
         this.projectNameEl.addEventListener('click', () => {
@@ -356,13 +363,70 @@ export default class Sidebar {
         this.settingsBtn.title = `Project Settings · ${accessLabel}, ${submissionLabel} pending`;
     }
 
-    async loadPlaces(projectId) {
+    async loadPlaces(projectId, { bounds = null, year = null, useSnapshot = false, limit = 250 } = {}) {
+        const token = ++this.loadRequestToken;
+        this.usesBoundedSnapshots = useSnapshot;
+
+        if (useSnapshot) {
+            const search = this.searchInput?.value || '';
+            const category = this.categoryFilter?.value || '';
+            const snapshot = await getProjectMapSnapshot(projectId, {
+                bounds,
+                year,
+                category,
+                search,
+                limit
+            });
+            if (token !== this.loadRequestToken) return;
+
+            let snapshotProjectHasPlaces = snapshot.items.length > 0 ? true : null;
+            if (!snapshotProjectHasPlaces && bounds && !search.trim() && !category) {
+                const presenceSnapshot = await getProjectMapSnapshot(projectId, { year, limit: 1 });
+                if (token !== this.loadRequestToken) return;
+                snapshotProjectHasPlaces = presenceSnapshot.items.length > 0;
+            }
+
+            this.places = snapshot.items.map((item) => item.place);
+            this.entriesByPlaceId = {};
+            this.placeSummariesById = Object.fromEntries(snapshot.items.map((item) => [item.place.id, {
+                entryCount: item.entryCount,
+                firstYear: item.firstYear,
+                lastYear: item.lastYear
+            }]));
+            this.markerStatesByPlaceId = Object.fromEntries(snapshot.items.map((item) => [item.place.id, item.markerState]));
+            this.snapshotHasMore = !!snapshot.nextCursor;
+            this.snapshotProjectHasPlaces = snapshotProjectHasPlaces;
+            this.primaryImagesByPlaceId = await getPrimaryPlaceImages(this.places);
+            if (token !== this.loadRequestToken) return;
+            this.hasLoadedPlaces = true;
+            this.countEl.textContent = `${this.places.length}${this.snapshotHasMore ? '+' : ''}`;
+            await this.renderPlaces(this.places);
+            this.onFilterChange?.(this.places.map(p => p.id));
+            this.renderGuideCard();
+            return;
+        }
+
         this.places = await getPlacesByProject(projectId);
+        if (token !== this.loadRequestToken) return;
         this.entriesByPlaceId = await getTimeEntriesForPlaces(this.places.map(place => place.id));
+        if (token !== this.loadRequestToken) return;
+        this.placeSummariesById = {};
+        this.markerStatesByPlaceId = {};
+        this.snapshotHasMore = false;
+        this.snapshotProjectHasPlaces = null;
         this.primaryImagesByPlaceId = await getPrimaryPlaceImages(this.places, { entriesByPlaceId: this.entriesByPlaceId });
+        if (token !== this.loadRequestToken) return;
         this.hasLoadedPlaces = true;
         this.filterPlaces();
         this.renderGuideCard();
+    }
+
+    handleQueryInput() {
+        if (this.usesBoundedSnapshots) {
+            this.onQueryChange?.();
+            return;
+        }
+        this.filterPlaces();
     }
 
     filterPlaces() {
@@ -406,8 +470,16 @@ export default class Sidebar {
     async renderPlaces(places) {
         const currentGen = ++this.renderGeneration;
         const hasFilters = Boolean(this.searchInput.value.trim() || (this.categoryFilter && this.categoryFilter.value));
+        const isViewportLimited = this.usesBoundedSnapshots;
+        const hasPlacesOutsideView = isViewportLimited && this.snapshotProjectHasPlaces === true;
 
         if (places.length === 0) {
+            const emptyTitle = hasFilters
+                ? 'No matching places'
+                : (hasPlacesOutsideView ? 'No places in this view' : 'No places yet');
+            const emptyDescription = hasFilters || hasPlacesOutsideView
+                ? 'Move the map, zoom out, or try a different search.'
+                : this.getEmptyStateDescription();
             this.listEl.classList.add('is-empty');
             this.listEl.innerHTML = `
         <div class="empty-state">
@@ -415,10 +487,8 @@ export default class Sidebar {
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
             <circle cx="12" cy="10" r="3"/>
           </svg>
-          <h4>${hasFilters ? 'No matching places' : 'No places yet'}</h4>
-          <p>${hasFilters
-                ? 'Try a different name, year, alias, or category.'
-                : this.getEmptyStateDescription()}</p>
+          <h4>${escapeHtml(emptyTitle)}</h4>
+          <p>${escapeHtml(emptyDescription)}</p>
         </div>
       `;
             return;
@@ -438,6 +508,7 @@ export default class Sidebar {
             item.dataset.placeId = place.id;
 
             const entries = this.entriesByPlaceId[place.id] || [];
+            const summary = this.placeSummariesById[place.id] || null;
             let thumbHtml = '';
             const primaryImage = this.primaryImagesByPlaceId[place.id];
             if (primaryImage?.publicUrl) {
@@ -460,10 +531,11 @@ export default class Sidebar {
                 if (Number.isFinite(entry.yearEnd)) years.push(entry.yearEnd);
                 return years;
             });
-            const firstYear = timelineYears.length > 0 ? Math.min(...timelineYears) : null;
-            const lastYear = timelineYears.length > 0 ? Math.max(...timelineYears) : null;
-            const meta = entries.length > 0
-                ? `${entries.length} dated entr${entries.length === 1 ? 'y' : 'ies'}${firstYear !== null ? ` · ${firstYear}${lastYear !== null && lastYear !== firstYear ? `–${lastYear}` : ''}` : ''}`
+            const entryCount = summary?.entryCount ?? entries.length;
+            const firstYear = summary?.firstYear ?? (timelineYears.length > 0 ? Math.min(...timelineYears) : null);
+            const lastYear = summary?.lastYear ?? (timelineYears.length > 0 ? Math.max(...timelineYears) : null);
+            const meta = entryCount > 0
+                ? `${entryCount} dated entr${entryCount === 1 ? 'y' : 'ies'}${firstYear !== null ? ` · ${firstYear}${lastYear !== null && lastYear !== firstYear ? `–${lastYear}` : ''}` : ''}`
                 : (this.canEditPublished ? 'Needs first dated entry' : 'No dated entries yet');
             const formerNames = (place.aliases || [])
                 .filter(a => a.endYear !== null && a.endYear !== undefined)
@@ -518,7 +590,8 @@ export default class Sidebar {
         if (!this.guideCardEl) return;
 
         const hasFilters = Boolean(this.searchInput.value.trim() || (this.categoryFilter && this.categoryFilter.value));
-        if (!this.currentProjectId || !this.hasLoadedPlaces || this.places.length > 0 || hasFilters) {
+        const shouldHideForSnapshot = this.usesBoundedSnapshots && this.snapshotProjectHasPlaces !== false;
+        if (!this.currentProjectId || !this.hasLoadedPlaces || this.places.length > 0 || hasFilters || shouldHideForSnapshot) {
             this.guideCardEl.style.display = 'none';
             this.guideCardEl.innerHTML = '';
             return;

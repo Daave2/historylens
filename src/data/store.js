@@ -145,6 +145,31 @@ const mapProjectRoleEvent = (row) => ({
     createdAt: new Date(row.created_at)
 });
 
+const mapProjectMapSnapshotRow = (row) => {
+    const aliases = Array.isArray(row.aliases) ? row.aliases.map(mapAlias) : [];
+    const place = mapPlace({
+        id: row.place_id,
+        project_id: row.project_id,
+        name: row.name,
+        description: row.description,
+        lat: row.lat,
+        lng: row.lng,
+        category: row.category,
+        created_by: row.created_by,
+        pinned_image_id: row.pinned_image_id || null,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+    }, aliases);
+
+    return {
+        place,
+        entryCount: row.entry_count || 0,
+        firstYear: row.first_year ?? null,
+        lastYear: row.last_year ?? null,
+        markerState: row.marker_state || 'none'
+    };
+};
+
 const PRIMARY_IMAGE_BUCKET = 'entry_images';
 const FALLBACK_IMAGE_BUCKET = 'place-images';
 
@@ -201,6 +226,35 @@ function safeInt(value, fallback = null) {
     if (value === null || value === undefined || value === '') return fallback;
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getEntryStateForYear(entries = [], year) {
+    if (!entries.length) return 'none';
+    if (!Number.isFinite(year)) return 'has_entries';
+
+    const exact = entries.find((entry) => entry.yearStart <= year && (entry.yearEnd === null || entry.yearEnd >= year));
+    if (exact) return 'exact';
+
+    const hasEarlierEntry = entries.some((entry) => entry.yearStart <= year);
+    if (hasEarlierEntry) return 'last_known';
+
+    return 'before_known';
+}
+
+function summarizeEntries(entries = [], year = null) {
+    const years = entries.flatMap((entry) => {
+        const result = [];
+        if (Number.isFinite(entry.yearStart)) result.push(entry.yearStart);
+        if (Number.isFinite(entry.yearEnd)) result.push(entry.yearEnd);
+        return result;
+    });
+
+    return {
+        entryCount: entries.length,
+        firstYear: years.length ? Math.min(...years) : null,
+        lastYear: years.length ? Math.max(...years) : null,
+        markerState: getEntryStateForYear(entries, year)
+    };
 }
 
 function imageQualityScore(image) {
@@ -582,7 +636,7 @@ export async function submitPlaceSuggestion({ projectId, name, description, cate
     });
 }
 
-export async function submitEntrySuggestion({ projectId, placeId, yearStart, yearEnd, title, summary, source, sourceType, confidence }) {
+export async function submitEntrySuggestion({ projectId, placeId, yearStart, yearEnd, title, summary, source, sourceType, confidence, linkedSourceId = null }) {
     return createModerationSubmission({
         projectId,
         submissionType: 'entry_create',
@@ -595,7 +649,8 @@ export async function submitEntrySuggestion({ projectId, placeId, yearStart, yea
             summary: summary || '',
             source: source || '',
             sourceType: sourceType || 'user',
-            confidence: confidence || 'likely'
+            confidence: confidence || 'likely',
+            linkedSourceId: linkedSourceId || null
         }
     });
 }
@@ -1036,6 +1091,113 @@ export async function getPlacesByProject(projectId) {
     return (data || []).map(row => mapPlace(row, aliasMap[row.id] || []));
 }
 
+export async function getProjectMapSnapshot(projectId, {
+    bounds = null,
+    year = null,
+    category = '',
+    search = '',
+    cursor = null,
+    limit = 250
+} = {}) {
+    const safeLimit = Math.min(Math.max(safeInt(limit, 250), 1), 500);
+    const params = {
+        p_project_id: projectId,
+        p_min_lat: bounds?.minLat ?? null,
+        p_min_lng: bounds?.minLng ?? null,
+        p_max_lat: bounds?.maxLat ?? null,
+        p_max_lng: bounds?.maxLng ?? null,
+        p_year: safeInt(year),
+        p_category: category || null,
+        p_search: search || null,
+        p_cursor_created_at: cursor?.createdAt || null,
+        p_cursor_id: cursor?.id || null,
+        p_limit: safeLimit
+    };
+
+    const { data, error } = await supabase.rpc('get_project_map_snapshot', params);
+    if (error) {
+        if (isMissingSchemaError(error)) {
+            return getProjectMapSnapshotFallback(projectId, { bounds, year, category, search, limit: safeLimit });
+        }
+        console.error(error);
+        throw error;
+    }
+
+    const rows = data || [];
+    const hasMore = rows.length > safeLimit;
+    const visibleRows = rows.slice(0, safeLimit);
+    const items = visibleRows.map(mapProjectMapSnapshotRow);
+    const last = hasMore ? visibleRows[visibleRows.length - 1] : null;
+
+    return {
+        items,
+        nextCursor: last ? { createdAt: last.created_at, id: last.place_id } : null,
+        schemaReady: true
+    };
+}
+
+async function getProjectMapSnapshotFallback(projectId, { bounds = null, year = null, category = '', search = '', limit = 250 } = {}) {
+    const places = await getPlacesByProject(projectId);
+    const entriesByPlaceId = await getTimeEntriesForPlaces(places.map((place) => place.id));
+    const searchText = (search || '').toLowerCase().trim();
+    const categoryFilter = (category || '').toLowerCase().trim();
+    const selectedYear = safeInt(year);
+
+    const filtered = places
+        .filter((place) => {
+            if (categoryFilter) {
+                const placeCategory = (place.category || '').toLowerCase();
+                const standardCategories = ['residential', 'commercial', 'landmark', 'natural', 'infrastructure'];
+                const categoryMatches = categoryFilter === 'other'
+                    ? !standardCategories.includes(placeCategory)
+                    : placeCategory === categoryFilter;
+                if (!categoryMatches) return false;
+            }
+            if (bounds) {
+                const minLat = Math.min(bounds.minLat ?? -90, bounds.maxLat ?? 90);
+                const maxLat = Math.max(bounds.minLat ?? -90, bounds.maxLat ?? 90);
+                const minLng = bounds.minLng ?? -180;
+                const maxLng = bounds.maxLng ?? 180;
+                const lngMatches = minLng <= maxLng
+                    ? place.lng >= minLng && place.lng <= maxLng
+                    : place.lng >= minLng || place.lng <= maxLng;
+                if (place.lat < minLat || place.lat > maxLat || !lngMatches) return false;
+            }
+
+            if (!searchText) return true;
+            const entries = entriesByPlaceId[place.id] || [];
+            const aliasText = (place.aliases || []).map((alias) => alias.alias).join(' ');
+            const entryText = entries.map((entry) => [
+                entry.title,
+                entry.summary,
+                entry.source,
+                entry.yearStart,
+                entry.yearEnd
+            ].filter(value => value !== null && value !== undefined && value !== '').join(' ')).join(' ');
+            return [
+                place.name,
+                place.description,
+                place.category,
+                aliasText,
+                entryText
+            ].join(' ').toLowerCase().includes(searchText);
+        })
+        .sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
+        .slice(0, limit);
+
+    return {
+        items: filtered.map((place) => {
+            const entries = entriesByPlaceId[place.id] || [];
+            return {
+                place,
+                ...summarizeEntries(entries, selectedYear)
+            };
+        }),
+        nextCursor: null,
+        schemaReady: false
+    };
+}
+
 export async function getPlace(id) {
     const { data, error } = await supabase.from('places').select('*').eq('id', id).single();
     if (error) { console.error(error); return null; }
@@ -1240,6 +1402,21 @@ export async function getBestEntryForYear(placeId, year) {
 }
 
 export async function getProjectYearRange(projectId) {
+    const { data, error } = await supabase.rpc('get_project_year_bounds', {
+        p_project_id: projectId
+    });
+    if (!error) {
+        const row = Array.isArray(data) ? data[0] : data;
+        if (row) {
+            return {
+                min: row.min_year ?? 1800,
+                max: row.max_year ?? new Date().getFullYear()
+            };
+        }
+    } else if (!isMissingSchemaError(error)) {
+        console.warn('Project year bounds RPC failed, falling back to client aggregation:', error);
+    }
+
     const places = await getPlacesByProject(projectId);
     if (places.length === 0) return { min: 1800, max: new Date().getFullYear() };
 

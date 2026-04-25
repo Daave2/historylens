@@ -30,28 +30,36 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - Added store CRUD for sources and entry_sources with graceful degradation when tables are missing.
 - Integrated source citation chips into timeline entries in PlaceDetail.
 - Added "Cite a structured source" section to EntryForm with search, selection, and inline creation.
+- Hardened structured citations by sanitizing source chip URLs, carrying selected sources through entry suggestions, linking them on approval, and enforcing same-project citation links.
+- Added `npm run smoke:citations` to keep the structured citation wiring covered by `npm run verify`.
+- Added the Phase 26 read-path foundation with bounded map snapshot/year-bound RPCs, store wrappers, sidebar/map snapshot loading, and `npm run smoke:scale-read`.
 
 ## Remaining
 
 1. Apply `supabase/phase23_comment_policy_alignment.sql` to the live Supabase project.
 2. Apply `supabase/phase24_collab_scale_foundation.sql` to the live Supabase project.
 3. Apply `supabase/phase25_sources.sql` to the live Supabase project.
-4. Configure smoke-test accounts locally or in CI:
+4. Apply `supabase/phase26_scale_read_path.sql` to the live Supabase project.
+5. Configure smoke-test accounts locally or in CI:
    - `HISTORYLENS_SMOKE_OWNER_EMAIL`
    - `HISTORYLENS_SMOKE_OWNER_PASSWORD`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_EMAIL`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
    - optional `HISTORYLENS_SMOKE_PROJECT_ID`
-5. Run the full authenticated moderation smoke test after those accounts exist.
-6. Re-check map/sidebar performance with a larger production-like dataset.
-7. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
+6. Run the full authenticated moderation smoke test after those accounts exist.
+7. Add cursor "load more" handling for bounded map/sidebar snapshots.
+8. Re-check map/sidebar performance with a larger production-like dataset.
+9. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
 
 ## Current Verification
 
 - `npm run build` passes.
-- `npm run verify` runs the production build plus both smoke checks.
+- `npm run verify` runs the production build plus geojson, enrichment, collaboration-scale, citation hardening, scale read-path, and moderation smoke checks.
 - `npm run smoke:geojson` passes against the current Supabase data.
 - `npm run smoke:enrichment` passes with mocked OSM/Wikidata/Wikipedia responses.
+- `npm run smoke:collab-scale` passes static checks for the Phase 24 collaboration/scale foundation.
+- `npm run smoke:citations` passes static checks for structured citation hardening.
+- `npm run smoke:scale-read` passes static checks for the Phase 26 bounded read-path foundation and sidebar/map snapshot wiring.
 - `npm run smoke:moderation` exits successfully and reports a skip unless smoke account credentials are configured.
 - `npm run seed:demo` is available for authenticated demo data seeding.
 - `npm audit --audit-level=moderate` reports 0 vulnerabilities.

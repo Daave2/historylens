@@ -31,6 +31,7 @@ export default class EntryForm {
     const isEdit = !!existingEntry;
     const isSuggestion = !isEdit && !!options.suggestionMode;
     const canAttachImages = !isSuggestion;
+    const canCreateStructuredSources = !isSuggestion;
     this.isSuggestionMode = isSuggestion;
 
     this.content.innerHTML = `
@@ -126,11 +127,11 @@ export default class EntryForm {
           </button>
           <div id="ef-cite-section" style="display: none;">
             <div class="source-form-inline">
-              <label class="form-label">Search existing sources or create new</label>
+              <label class="form-label">${canCreateStructuredSources ? 'Search existing sources or create new' : 'Search existing sources'}</label>
               <input class="form-input" id="ef-source-search" type="text" placeholder="Type to search sources…" />
               <div id="ef-source-results" class="source-search-results" style="display: none;"></div>
               <div id="ef-source-selected" style="display: none; margin-top: var(--space-sm);"></div>
-              <details id="ef-source-new" style="margin-top: var(--space-sm);">
+              ${canCreateStructuredSources ? `<details id="ef-source-new" style="margin-top: var(--space-sm);">
                 <summary style="cursor:pointer; color: var(--text-muted); font-size: var(--text-sm);">+ Create new source</summary>
                 <div style="margin-top: var(--space-sm);">
                   <div class="form-row">
@@ -164,7 +165,7 @@ export default class EntryForm {
                   </div>
                   <button class="btn btn-ghost" id="ef-create-source" style="margin-top: var(--space-sm);">Create & Link Source</button>
                 </div>
-              </details>
+              </details>` : ''}
             </div>
           </div>
         </div>

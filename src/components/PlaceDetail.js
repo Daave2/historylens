@@ -1487,9 +1487,10 @@ function renderEntrySourceChips(entrySources) {
       const icon = src.icon || '📎';
       const label = escapeHtml(src.title || 'Source');
       const pageNote = es.pageOrSection ? ` · ${escapeHtml(es.pageOrSection)}` : '';
+      const sourceUrl = safeUrl(src.url);
 
-      if (src.url) {
-        return `<a class="source-chip" href="${escapeAttr(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(src.title + (es.pageOrSection ? ' — ' + es.pageOrSection : ''))}"><span class="source-chip-icon">${icon}</span>${label}${pageNote}</a>`;
+      if (sourceUrl) {
+        return `<a class="source-chip" href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(src.title + (es.pageOrSection ? ' — ' + es.pageOrSection : ''))}"><span class="source-chip-icon">${icon}</span>${label}${pageNote}</a>`;
       }
       return `<span class="source-chip" title="${escapeAttr(src.title + (es.pageOrSection ? ' — ' + es.pageOrSection : ''))}"><span class="source-chip-icon">${icon}</span>${label}${pageNote}</span>`;
     });

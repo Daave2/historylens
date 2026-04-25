@@ -398,6 +398,16 @@ export default class MapView {
         this.map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
     }
 
+    getViewportBounds(padRatio = 0.2) {
+        const bounds = this.map.getBounds().pad(padRatio);
+        return {
+            minLat: bounds.getSouth(),
+            minLng: bounds.getWest(),
+            maxLat: bounds.getNorth(),
+            maxLng: bounds.getEast()
+        };
+    }
+
     invalidateSize() {
         this.map.invalidateSize();
     }

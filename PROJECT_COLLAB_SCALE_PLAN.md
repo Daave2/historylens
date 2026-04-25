@@ -116,6 +116,7 @@ Current status (Phase 25):
 - ✅ Store layer has CRUD for sources + batch entry source lookups.
 - ✅ Timeline entries render structured source citation chips.
 - ✅ EntryForm has inline source search/create/link workflow.
+- ✅ Structured source links are sanitized, preserved through entry suggestions, and constrained to the same project on approval.
 - ✅ Bulk review tools: select-all checkbox, bulk approve/reject with shared note prompt.
 - ✅ Keyboard shortcuts: J/K navigate pending cards, A approve, R reject (scoped to modal).
 - ✅ Duplicate detection: warns on nearby places (<50m) or same-name/same-year entries.
@@ -246,10 +247,19 @@ The first foundation slice has been implemented locally:
 Next, continue with Phase 26 (Scale The Read Path):
 
 1. Apply the Phase 24 + Phase 25 migrations to the live Supabase project.
-2. Build the `get_project_map_snapshot` RPC for viewport-bounded marker loading.
-3. Switch sidebar/map loading from full-project fetch to bounded viewport queries.
+2. Build the `get_project_map_snapshot` RPC for viewport-bounded marker loading. ✅ Phase 26 read-path foundation added locally.
+3. Switch sidebar/map loading from full-project fetch to bounded viewport queries. ✅ Initial bounded snapshot UI path added locally.
 4. Add server-side search for names, aliases, sources, entry titles, and summaries.
 5. Add remaining Phase 25 items (bulk review, duplicate detection) as they become needed.
+
+Current status (Phase 26):
+
+- ✅ `supabase/phase26_scale_read_path.sql` adds `get_project_map_snapshot` and `get_project_year_bounds`.
+- ✅ Store helpers expose `getProjectMapSnapshot` with a pre-migration fallback.
+- ✅ `getProjectYearRange` now prefers the bounded year-bounds RPC before falling back to client aggregation.
+- ✅ Sidebar/map loading now refreshes from bounded viewport snapshots on map movement, search/category changes, and year changes.
+- ✅ `npm run smoke:scale-read` covers the Phase 26 read-path wiring.
+- Remaining: add cursor "load more" UI, tune primary image loading for large visible result sets, and performance-test with generated large projects.
 
 ## Watchpoints
 

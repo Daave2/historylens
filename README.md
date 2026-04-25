@@ -142,7 +142,10 @@ In Supabase Dashboard -> Authentication -> URL Configuration:
   - `supabase/phase23_comment_policy_alignment.sql`
   - `supabase/phase24_collab_scale_foundation.sql`
   - `supabase/phase25_sources.sql`
+  - `supabase/phase26_scale_read_path.sql`
 - The older numbered phase files remain in the repo as historical migrations. For fresh installs, the files above are the current bootstrap path.
+- Phase 25 also refreshes the moderation review RPC so approved entry suggestions preserve selected structured citations.
+- Phase 26 adds bounded map snapshot and year-bound RPCs for large-project read paths.
 - Deploy `supabase/functions/ai-proxy` and set `OPENAI_API_KEY` as a Supabase secret if using AI features.
 
 ## Repository Structure
@@ -172,9 +175,11 @@ From `package.json`:
 - `npm run dev` - start Vite dev server
 - `npm run build` - build production assets
 - `npm run preview` - preview production build locally
-- `npm run verify` - run production build, read-only Supabase smoke, enrichment smoke, collaboration-scale smoke, and moderation smoke
+- `npm run verify` - run production build, read-only Supabase smoke, enrichment smoke, collaboration-scale smoke, citation hardening smoke, scale read-path smoke, and moderation smoke
 - `npm run seed:demo` - create or refresh a small authenticated Supabase demo project
 - `npm run smoke:enrichment` - verify mocked OSM/Wikidata/Wikipedia place seed enrichment
 - `npm run smoke:geojson` - verify core Supabase reads against the current environment
 - `npm run smoke:collab-scale` - verify the Phase 24 collaboration/scale foundation files are present
+- `npm run smoke:citations` - verify structured citation hardening stays wired in
+- `npm run smoke:scale-read` - verify the Phase 26 bounded read-path RPCs stay wired in
 - `npm run smoke:moderation` - verify authenticated request, submission, review-note, approval, and cleanup flow when smoke credentials are configured
