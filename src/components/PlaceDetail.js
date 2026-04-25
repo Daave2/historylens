@@ -22,6 +22,9 @@ import {
   getPlaceLocationHistory
 } from '../data/store.js';
 import { escapeAttr, escapeHtml, safeUrl } from '../utils/sanitize.js';
+import { extractResearchLinksFromSummary } from '../utils/researchLinks.js';
+
+const SOURCE_RESEARCH_PROMPT = 'HistoryLens — research prompt';
 
 export default class PlaceDetail {
   constructor({ onAddEntry, onEditEntry, onDeletePlace, onRegenerateOverview, onSuggestMove, onSuggestAlias, onPickLocationFromMap, onClose }) {
@@ -396,6 +399,14 @@ export default class PlaceDetail {
         const confClass = ['verified', 'likely', 'speculative'].includes(entry.confidence)
           ? entry.confidence
           : 'likely';
+        const researchInfo = extractResearchLinksFromSummary(entry.summary || '');
+        const summaryText = researchInfo.links.length > 0 ? researchInfo.summary : entry.summary || '';
+        const researchLinksHtml = researchInfo.links.length > 0
+          ? `<div class="timeline-research-links">
+              ${researchInfo.links.map((link) => `<a class="timeline-research-link" href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`).join('')}
+            </div>`
+          : '';
+        const sourceLabel = entry.source === SOURCE_RESEARCH_PROMPT ? 'Research lead' : entry.source;
 
         // Attribution logic
         const profile = profiles[entry.createdBy];
@@ -409,11 +420,12 @@ export default class PlaceDetail {
             <div class="timeline-dot ${confClass}"></div>
             <div class="timeline-year">${yearRange}</div>
             <div class="timeline-title">${escapeHtml(entry.title || 'Untitled entry')}</div>
-            <div class="timeline-summary">${escapeHtml(entry.summary || '')}</div>
+            <div class="timeline-summary">${escapeHtml(summaryText)}</div>
+            ${researchLinksHtml}
             ${imagesHtml}
             <div class="timeline-source">
               <span class="confidence-badge ${confClass}">${confClass}</span>
-              ${entry.source ? `<span>· ${escapeHtml(entry.source)}</span>` : ''}
+              ${sourceLabel ? `<span>· ${escapeHtml(sourceLabel)}</span>` : ''}
               <span>· Added by ${escapeHtml(authorDisplay)}</span>
               ${(!isReadOnly && (currentUserRole === 'owner' || currentUserRole === 'admin' || (currentUser && entry.createdBy === currentUser.id))) ? `
               <button class="icon-btn edit-entry-btn" data-entry-id="${escapeAttr(entry.id)}" title="Edit entry">

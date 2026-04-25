@@ -20,7 +20,8 @@ export function safeUrl(url) {
   if (raw.startsWith('/')) return raw;
 
   try {
-    const parsed = new URL(raw, window.location.origin);
+    const origin = globalThis.location?.origin || 'http://localhost';
+    const parsed = new URL(raw, origin);
     const protocol = parsed.protocol.toLowerCase();
     if (protocol === 'http:' || protocol === 'https:') {
       return parsed.toString();

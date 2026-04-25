@@ -445,20 +445,32 @@ export default class PlaceForm {
         : '';
       const safeSourceUrl = safeUrl(entry.sourceUrl);
       const isSaveable = entry.saveable !== false;
+      const isResearchLead = entry.source === 'HistoryLens — research prompt';
       const shouldPreselect = isSaveable && entry.preselected !== false && entry.confidence !== 'speculative';
+      const researchLinks = Array.isArray(entry.researchLinks)
+        ? entry.researchLinks
+          .map((link) => ({ label: link?.label || '', url: safeUrl(link?.url) }))
+          .filter((link) => link.label && link.url)
+          .slice(0, 4)
+        : [];
 
       const confBadge = entry.confidence === 'speculative'
         ? '<span style="background:rgba(94,93,88,0.2);color:var(--text-muted);padding:1px 6px;border-radius:99px;font-size:10px;">speculative</span>'
         : entry.confidence === 'verified'
           ? '<span style="background:rgba(74,222,128,0.15);color:var(--success);padding:1px 6px;border-radius:99px;font-size:10px;">verified</span>'
           : '<span style="background:rgba(251,191,36,0.15);color:var(--warning);padding:1px 6px;border-radius:99px;font-size:10px;">likely</span>';
-      const leadBadge = isSaveable
-        ? ''
-        : '<span style="background:rgba(52,211,153,0.12);color:var(--success);padding:1px 6px;border-radius:99px;font-size:10px;">research lead</span>';
+      const leadBadge = isResearchLead
+        ? '<span style="background:rgba(52,211,153,0.12);color:var(--success);padding:1px 6px;border-radius:99px;font-size:10px;">research lead</span>'
+        : '';
       const rowTag = isSaveable ? 'label' : 'div';
       const control = isSaveable
         ? `<input type="checkbox" class="auto-entry-check" data-index="${idx}" ${shouldPreselect ? 'checked' : ''} style="margin-top:3px;accent-color:${colour};" />`
         : `<span aria-hidden="true" style="width:13px;height:13px;margin-top:3px;border:1px solid ${colour};border-radius:3px;opacity:0.55;flex:0 0 auto;"></span>`;
+      const researchLinksHtml = researchLinks.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+            ${researchLinks.map((link) => `<a href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer" style="color:${colour};border:1px solid ${colour}55;border-radius:999px;padding:2px 8px;text-decoration:none;font-size:10px;">${escapeHtml(link.label)}</a>`).join('')}
+          </div>`
+        : '';
 
       html += `
         <div style="background:var(--bg-surface);border:1px solid var(--glass-border);border-radius:var(--radius-md);padding:var(--space-md);margin-bottom:var(--space-xs);">
@@ -475,6 +487,7 @@ export default class PlaceForm {
                 ${leadBadge}
                 ${safeSourceUrl ? `<a href="${escapeAttr(safeSourceUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">Read more ↗</a>` : ''}
               </div>
+              ${researchLinksHtml}
             </div>
           </${rowTag}>
         </div>

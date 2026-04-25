@@ -1952,6 +1952,28 @@ input[type="range"]::-moz-range-thumb {
   margin-bottom: var(--space-sm);
 }
 
+.timeline-research-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 var(--space-sm);
+}
+
+.timeline-research-link {
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: var(--radius-full);
+  color: var(--success);
+  font-size: var(--text-xs);
+  line-height: 1.2;
+  padding: 3px 8px;
+  text-decoration: none;
+}
+
+.timeline-research-link:hover {
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.6);
+}
+
 .timeline-images {
   display: flex;
   gap: var(--space-sm);

@@ -170,7 +170,8 @@ From `package.json`:
 - `npm run dev` - start Vite dev server
 - `npm run build` - build production assets
 - `npm run preview` - preview production build locally
-- `npm run verify` - run production build, read-only Supabase smoke, and moderation smoke
+- `npm run verify` - run production build, read-only Supabase smoke, enrichment smoke, and moderation smoke
 - `npm run seed:demo` - create or refresh a small authenticated Supabase demo project
+- `npm run smoke:enrichment` - verify mocked OSM/Wikidata/Wikipedia place seed enrichment
 - `npm run smoke:geojson` - verify core Supabase reads against the current environment
 - `npm run smoke:moderation` - verify authenticated request, submission, review-note, approval, and cleanup flow when smoke credentials are configured

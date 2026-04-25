@@ -18,26 +18,32 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - Added `npm run verify` as the one-command local build/smoke baseline.
 - Cleared npm audit findings by removing unused `uuid`, updating Vite to `7.3.2`, and applying transitive patch fixes.
 - Hardened service-worker behavior behind an explicit `VITE_ENABLE_SERVICE_WORKER=true` opt-in.
-- Reworked place seed enrichment to prefer OSM/Wikidata/Wikipedia evidence and show generic research leads without auto-saving them.
+- Reworked place seed enrichment to prefer OSM/Wikidata/Wikipedia evidence and show generic research leads as unchecked, user-selectable working notes.
+- Added `npm run smoke:enrichment` so the evidence-first seed logic is covered without live external APIs.
+- Checked the guest browser path on localhost; editor-only enrichment rendering is covered by the mocked smoke test until editor smoke credentials exist.
+- Added research-link launch pads to research leads so users can jump straight to maps, newspapers, archives, listings, or web searches.
+- Render saved research lead links as timeline chips while hiding the stored URL trail from the main entry summary.
 
 ## Remaining
 
 1. Apply `supabase/phase23_comment_policy_alignment.sql` to the live Supabase project.
-2. Configure smoke-test accounts locally or in CI:
+2. Begin the collaboration and scale roadmap in `PROJECT_COLLAB_SCALE_PLAN.md`, starting with the Phase 24 foundation migration and paginated review queue.
+3. Configure smoke-test accounts locally or in CI:
    - `HISTORYLENS_SMOKE_OWNER_EMAIL`
    - `HISTORYLENS_SMOKE_OWNER_PASSWORD`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_EMAIL`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
    - optional `HISTORYLENS_SMOKE_PROJECT_ID`
-3. Run the full authenticated moderation smoke test after those accounts exist.
-4. Re-check map/sidebar performance with a larger production-like dataset.
-5. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
+4. Run the full authenticated moderation smoke test after those accounts exist.
+5. Re-check map/sidebar performance with a larger production-like dataset.
+6. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
 
 ## Current Verification
 
 - `npm run build` passes.
 - `npm run verify` runs the production build plus both smoke checks.
 - `npm run smoke:geojson` passes against the current Supabase data.
+- `npm run smoke:enrichment` passes with mocked OSM/Wikidata/Wikipedia responses.
 - `npm run smoke:moderation` exits successfully and reports a skip unless smoke account credentials are configured.
 - `npm run seed:demo` is available for authenticated demo data seeding.
 - `npm audit --audit-level=moderate` reports 0 vulnerabilities.

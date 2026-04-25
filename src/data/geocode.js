@@ -915,26 +915,35 @@ function buildResearchPrompts(geocode, nearby, category = '') {
     const typeText = getPlaceTypeText(geocode, nearby, category);
 
     if (road) {
+        const links = buildCommonResearchLinks(geocode, 'maps');
         prompts.push({
             title: `${road} — map and directory check`,
             summary: `Check old Ordnance Survey maps, street directories, census returns, and electoral registers to establish when this site first appears and how its use changed.`,
-            sourceUrl: historicMapSearchUrl(geocode)
+            links
         });
     }
 
     if (/blackpool/i.test(city)) {
+        const links = [
+            { label: 'History Centre', url: 'https://www.blackpool.gov.uk/Residents/Libraries-arts-and-heritage/History-centre/History-Centre.aspx' },
+            ...buildCommonResearchLinks(geocode, 'blackpool')
+        ];
         prompts.push({
             title: 'Blackpool local sources',
             summary: 'Useful next checks: Blackpool local studies collections, Lancashire Archives, British Newspaper Archive, historic OS maps, Kelly directories, and planning/listed-building records.',
-            sourceUrl: 'https://www.blackpool.gov.uk/Residents/Libraries-arts-and-heritage/History-centre/History-Centre.aspx'
+            links
         });
     }
 
     if (/heritage|historic|monument|memorial|castle|listed/.test(typeText)) {
+        const links = [
+            { label: 'Historic England', url: 'https://historicengland.org.uk/listing/the-list/' },
+            ...buildCommonResearchLinks(geocode, 'heritage')
+        ];
         prompts.push({
             title: 'Heritage listing check',
             summary: 'Look for a statutory listing, local heritage record, Historic England entry, conservation-area note, or local Historic Environment Record reference.',
-            sourceUrl: 'https://historicengland.org.uk/listing/the-list/'
+            links
         });
     }
 
@@ -942,7 +951,7 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'Trade and licence records',
             summary: 'Check trade directories, licensing registers, newspaper adverts, and historic photographs for business names, licensees, owners, and name changes.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'trade directories')
         });
     }
 
@@ -950,7 +959,7 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'Church and chapel records',
             summary: 'Check foundation or consecration dates, denomination archives, parish magazines, registers, architects, and any war memorial or rebuilding records.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'church records')
         });
     }
 
@@ -958,7 +967,7 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'School records',
             summary: 'Check local education authority records, school log books, admission registers, newspaper opening reports, and map evidence for later extensions.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'school records')
         });
     }
 
@@ -966,7 +975,7 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'Transport records',
             summary: 'Check opening and closure dates in railway or tramway histories, timetables, company records, newspaper reports, and OS map revisions.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'transport history')
         });
     }
 
@@ -974,7 +983,7 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'Entertainment venue records',
             summary: 'Check opening programmes, newspaper adverts, architects, ownership changes, seating capacity, closure dates, and later reuse of the building.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'cinema theatre history')
         });
     }
 
@@ -982,7 +991,7 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'Industrial site records',
             summary: 'Check trade directories, insurance maps, company records, planning files, newspaper reports, and OS maps for changes in buildings and use.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'industrial history')
         });
     }
 
@@ -990,22 +999,32 @@ function buildResearchPrompts(geocode, nearby, category = '') {
         prompts.push({
             title: 'Residential history checks',
             summary: 'Check census returns, electoral registers, street directories, probate notices, deeds, and OS maps to build a resident and building chronology.',
-            sourceUrl: ''
+            links: buildCommonResearchLinks(geocode, 'residential history')
         });
     }
 
-    return dedupePromptSpecs(prompts).map((prompt) => ({
-        title: prompt.title,
-        summary: prompt.summary,
-        source: SOURCE_RESEARCH_PROMPT,
-        sourceUrl: prompt.sourceUrl || '',
-        sourceType: 'user',
-        confidence: 'speculative',
-        yearStart: null,
-        yearEnd: null,
-        preselected: false,
-        saveable: false
-    }));
+    const currentYear = new Date().getFullYear();
+
+    return dedupePromptSpecs(prompts).map((prompt) => {
+        const researchLinks = dedupeResearchLinks(prompt.links || buildCommonResearchLinks(geocode));
+        const sourceUrl = researchLinks[0]?.url || '';
+        const savedLinks = researchLinks.length > 0
+            ? ` Research links: ${researchLinks.map((link) => `${link.label}: ${link.url}`).join('; ')}.`
+            : '';
+
+        return {
+            title: `Research lead: ${prompt.title}`,
+            summary: `${prompt.summary} Saved as a working research note; replace it with dated evidence once confirmed.${savedLinks}`,
+            source: SOURCE_RESEARCH_PROMPT,
+            sourceUrl,
+            researchLinks,
+            sourceType: 'user',
+            confidence: 'speculative',
+            yearStart: currentYear,
+            yearEnd: null,
+            preselected: false
+        };
+    });
 }
 
 function getPlaceTypeText(geocode, nearby, category = '') {
@@ -1039,8 +1058,49 @@ function dedupePromptSpecs(prompts) {
     });
 }
 
+function buildCommonResearchLinks(geocode, focus = '') {
+    const placeQuery = researchQuery(geocode);
+    const focusedQuery = [placeQuery, focus].filter(Boolean).join(' ');
+    const links = [];
+
+    if (placeQuery) {
+        links.push({ label: 'Historic maps', url: historicMapSearchUrl(geocode) });
+        links.push({ label: 'Newspapers', url: `https://www.britishnewspaperarchive.co.uk/search/results?basicsearch=${encodeURIComponent(placeQuery)}` });
+        links.push({ label: 'Web search', url: `https://www.google.com/search?q=${encodeURIComponent(focusedQuery || placeQuery)}` });
+    }
+
+    if (/blackpool/i.test(geocode.city || geocode.town || '')) {
+        links.push({ label: 'Lancashire Archives', url: `https://archivecat.lancashire.gov.uk/calmview/Overview.aspx` });
+    }
+
+    return dedupeResearchLinks(links);
+}
+
+function dedupeResearchLinks(links) {
+    const seen = new Set();
+    return (links || [])
+        .filter((link) => link?.label && link?.url)
+        .filter((link) => {
+            const key = `${link.label}|${link.url}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
+        .slice(0, 4);
+}
+
+function researchQuery(geocode) {
+    return [
+        geocode.placeName,
+        geocode.officialName,
+        geocode.houseNumber && geocode.road ? `${geocode.houseNumber} ${geocode.road}` : geocode.road,
+        geocode.city,
+        geocode.postcode
+    ].filter(Boolean).join(' ');
+}
+
 function historicMapSearchUrl(geocode) {
-    const query = [geocode.houseNumber, geocode.road, geocode.city].filter(Boolean).join(' ');
+    const query = researchQuery(geocode);
     return query ? `https://maps.nls.uk/geo/find/#q=${encodeURIComponent(query)}` : 'https://maps.nls.uk/geo/find/';
 }
 
