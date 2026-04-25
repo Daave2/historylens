@@ -25,6 +25,7 @@ export default class EntryForm {
     const e = existingEntry || {};
     const isEdit = !!existingEntry;
     const isSuggestion = !isEdit && !!options.suggestionMode;
+    const canAttachImages = !isSuggestion;
     this.isSuggestionMode = isSuggestion;
 
     this.content.innerHTML = `
@@ -52,24 +53,28 @@ export default class EntryForm {
         </div>
       </div>
 
-      <button class="btn btn-ghost" id="ef-toggle-images" style="margin-bottom: var(--space-sm);">
-        ${this.pendingImages.length > 0 ? 'Hide photos and documents' : 'Add photos or documents'}
-      </button>
+      ${canAttachImages ? `
+        <button class="btn btn-ghost" id="ef-toggle-images" style="margin-bottom: var(--space-sm);">
+          ${this.pendingImages.length > 0 ? 'Hide photos and documents' : 'Add photos or documents'}
+        </button>
 
-      <div class="form-group" id="ef-images-section" style="display: ${this.pendingImages.length > 0 ? 'block' : 'none'};">
-        <label class="form-label">Photos / Documents</label>
-        <div class="image-upload-zone" id="ef-drop-zone">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-          <p>Drop images here or click to browse</p>
-          <span class="hint">JPG, PNG, WebP — any historical photos, maps, or documents</span>
+        <div class="form-group" id="ef-images-section" style="display: ${this.pendingImages.length > 0 ? 'block' : 'none'};">
+          <label class="form-label">Photos / Documents</label>
+          <div class="image-upload-zone" id="ef-drop-zone">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+            <p>Drop images here or click to browse</p>
+            <span class="hint">JPG, PNG, WebP — any historical photos, maps, or documents</span>
+          </div>
+          <input type="file" id="ef-file-input" multiple accept="image/*" style="display:none;" />
+          <div class="image-preview-grid" id="ef-preview-grid"></div>
         </div>
-        <input type="file" id="ef-file-input" multiple accept="image/*" style="display:none;" />
-        <div class="image-preview-grid" id="ef-preview-grid"></div>
-      </div>
+      ` : `
+        <p class="form-hint entry-suggestion-image-note">Photos and documents can be added after an editor approves this suggested entry.</p>
+      `}
 
       <button class="btn btn-ghost" id="ef-toggle-advanced" style="margin-bottom: var(--space-sm);">
         ${isEdit ? 'Hide dates, sources, and confidence' : 'Add dates, sources, and confidence'}
@@ -132,26 +137,29 @@ export default class EntryForm {
 
     const imagesSection = this.content.querySelector('#ef-images-section');
     const imagesToggle = this.content.querySelector('#ef-toggle-images');
-    imagesToggle.addEventListener('click', (evt) => {
-      evt.preventDefault();
-      const isOpen = imagesSection.style.display !== 'none';
-      imagesSection.style.display = isOpen ? 'none' : 'block';
-      imagesToggle.textContent = isOpen ? 'Add photos or documents' : 'Hide photos and documents';
-    });
+    if (imagesSection && imagesToggle) {
+      imagesToggle.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        const isOpen = imagesSection.style.display !== 'none';
+        imagesSection.style.display = isOpen ? 'none' : 'block';
+        imagesToggle.textContent = isOpen ? 'Add photos or documents' : 'Hide photos and documents';
+      });
+    }
 
     // Image upload
     const dropZone = this.content.querySelector('#ef-drop-zone');
     const fileInput = this.content.querySelector('#ef-file-input');
-
-    dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('dragover');
-      this.handleFiles(e.dataTransfer.files);
-    });
-    fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
+    if (dropZone && fileInput) {
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        this.handleFiles(e.dataTransfer.files);
+      });
+      fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
+    }
 
     this.modal.style.display = 'flex';
   }
@@ -211,7 +219,7 @@ export default class EntryForm {
 
     // Convert pending image files to blobs
     const imageBlobs = [];
-    for (const img of this.pendingImages) {
+    for (const img of this.isSuggestionMode ? [] : this.pendingImages) {
       imageBlobs.push({
         blob: img.file,
         caption: '',

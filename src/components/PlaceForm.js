@@ -11,6 +11,7 @@ export default class PlaceForm {
     this.mapView = mapView;
     this.pendingLatLng = null;
     this.lookupResult = null;
+    this.selectedSearchResult = null;
     this.isSuggestionMode = false;
     this._searchTimer = null;
     this._searchRequestId = 0;
@@ -264,6 +265,7 @@ export default class PlaceForm {
   }
 
   async selectSearchResult(result) {
+    this.selectedSearchResult = result;
     this.pendingLatLng = { lat: result.lat, lng: result.lng };
 
     // Update form fields
@@ -282,10 +284,10 @@ export default class PlaceForm {
     }
 
     // Run full lookup
-    await this.runLookup(result.lat, result.lng);
+    await this.runLookup(result.lat, result.lng, result.placeName || result.displayName || '', result);
   }
 
-  async runLookup(lat, lng) {
+  async runLookup(lat, lng, customName = '', selectedResult = null) {
     const hintEl = this.content.querySelector('#pf-address-hint');
     const discoveredEl = this.content.querySelector('#pf-discovered');
     const nameInput = this.content.querySelector('#pf-name');
@@ -294,7 +296,7 @@ export default class PlaceForm {
     hintEl.textContent = 'Checking nearby details…';
     discoveredEl.style.display = 'none';
 
-    const info = await lookupPlaceInfo(lat, lng);
+    const info = await lookupPlaceInfo(lat, lng, customName, selectedResult || this.selectedSearchResult);
     this.lookupResult = info;
 
     if (info.address) {
@@ -397,20 +399,26 @@ export default class PlaceForm {
       <div style="border-top: 1px solid var(--glass-border); padding-top: var(--space-lg); margin-top: var(--space-md);">
         <div style="display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md);">
           <span style="font-size: var(--text-sm); font-weight: 600; color: var(--accent);">Optional Timeline Ideas</span>
-          <span style="font-size: var(--text-xs); color: var(--text-muted);">Select any items you want to add now.</span>
+          <span style="font-size: var(--text-xs); color: var(--text-muted);">Speculative ideas are left unchecked.</span>
         </div>
     `;
 
     // Group entries by type
-    const wikiEntries = info.autoEntries.filter(e => e.source === 'Wikipedia' || (e.sourceType === 'archive' && e.source !== 'OpenStreetMap' && e.source !== 'HistoryLens — building age estimation' && e.source !== 'HistoryLens — area context'));
+    const wikiEntries = info.autoEntries.filter(e => e.source === 'Wikipedia');
+    const wikidataEntries = info.autoEntries.filter(e => e.source === 'Wikidata');
     const osmEntries = info.autoEntries.filter(e => e.source === 'OpenStreetMap');
+    const linkedEntries = info.autoEntries.filter(e => e.sourceType === 'archive' && !['Wikipedia', 'Wikidata', 'OpenStreetMap', 'HistoryLens — building age estimation', 'HistoryLens — area context', 'HistoryLens — research prompt'].includes(e.source));
     const buildingEntries = info.autoEntries.filter(e => e.source === 'HistoryLens — building age estimation');
     const areaEntries = info.autoEntries.filter(e => e.source === 'HistoryLens — area context');
+    const researchEntries = info.autoEntries.filter(e => e.source === 'HistoryLens — research prompt');
 
     if (wikiEntries.length > 0) html += this.renderGroup('📖 Wikipedia & Research', wikiEntries, info, '#60a5fa');
-    if (osmEntries.length > 0) html += this.renderGroup('📍 Nearby Features (OpenStreetMap)', osmEntries, info, '#f59e0b');
+    if (wikidataEntries.length > 0) html += this.renderGroup('🔎 Wikidata Evidence', wikidataEntries, info, '#38bdf8');
+    if (osmEntries.length > 0) html += this.renderGroup('📍 OpenStreetMap Evidence', osmEntries, info, '#f59e0b');
+    if (linkedEntries.length > 0) html += this.renderGroup('📚 Linked Evidence', linkedEntries, info, '#60a5fa');
     if (buildingEntries.length > 0) html += this.renderGroup('🏠 Building Age Estimate', buildingEntries, info, '#a78bfa');
     if (areaEntries.length > 0) html += this.renderGroup('🗺️ Area Context', areaEntries, info, '#34d399');
+    if (researchEntries.length > 0) html += this.renderGroup('🧭 Research Leads', researchEntries, info, '#34d399');
 
     if (info.autoEntries.length === 0) {
       html += `
@@ -436,17 +444,26 @@ export default class PlaceForm {
         ? (entry.yearEnd ? `${entry.yearStart}–${entry.yearEnd}` : `From ${entry.yearStart}`)
         : '';
       const safeSourceUrl = safeUrl(entry.sourceUrl);
+      const isSaveable = entry.saveable !== false;
+      const shouldPreselect = isSaveable && entry.preselected !== false && entry.confidence !== 'speculative';
 
       const confBadge = entry.confidence === 'speculative'
         ? '<span style="background:rgba(94,93,88,0.2);color:var(--text-muted);padding:1px 6px;border-radius:99px;font-size:10px;">speculative</span>'
         : entry.confidence === 'verified'
           ? '<span style="background:rgba(74,222,128,0.15);color:var(--success);padding:1px 6px;border-radius:99px;font-size:10px;">verified</span>'
           : '<span style="background:rgba(251,191,36,0.15);color:var(--warning);padding:1px 6px;border-radius:99px;font-size:10px;">likely</span>';
+      const leadBadge = isSaveable
+        ? ''
+        : '<span style="background:rgba(52,211,153,0.12);color:var(--success);padding:1px 6px;border-radius:99px;font-size:10px;">research lead</span>';
+      const rowTag = isSaveable ? 'label' : 'div';
+      const control = isSaveable
+        ? `<input type="checkbox" class="auto-entry-check" data-index="${idx}" ${shouldPreselect ? 'checked' : ''} style="margin-top:3px;accent-color:${colour};" />`
+        : `<span aria-hidden="true" style="width:13px;height:13px;margin-top:3px;border:1px solid ${colour};border-radius:3px;opacity:0.55;flex:0 0 auto;"></span>`;
 
       html += `
         <div style="background:var(--bg-surface);border:1px solid var(--glass-border);border-radius:var(--radius-md);padding:var(--space-md);margin-bottom:var(--space-xs);">
-          <label style="display:flex;gap:var(--space-sm);cursor:pointer;align-items:flex-start;">
-            <input type="checkbox" class="auto-entry-check" data-index="${idx}" checked style="margin-top:3px;accent-color:${colour};" />
+          <${rowTag} style="display:flex;gap:var(--space-sm);${isSaveable ? 'cursor:pointer;' : ''}align-items:flex-start;">
+            ${control}
             <div style="flex:1;min-width:0;">
               ${yearText ? `<div style="font-size:var(--text-xs);color:${colour};font-weight:500;">${escapeHtml(yearText)}</div>` : ''}
               <div style="font-size:var(--text-sm);font-weight:500;">${escapeHtml(entry.title)}</div>
@@ -455,10 +472,11 @@ export default class PlaceForm {
               </div>
               <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;display:flex;align-items:center;gap:var(--space-sm);">
                 ${confBadge}
+                ${leadBadge}
                 ${safeSourceUrl ? `<a href="${escapeAttr(safeSourceUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">Read more ↗</a>` : ''}
               </div>
             </div>
-          </label>
+          </${rowTag}>
         </div>
       `;
     }

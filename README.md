@@ -53,6 +53,8 @@ VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 # Optional (for historic map overlays)
 VITE_MAPTILER_KEY=
+# Optional, keep false until the offline/browser pass has been verified
+VITE_ENABLE_SERVICE_WORKER=false
 ```
 
 ### 3. Run development server
@@ -65,6 +67,7 @@ npm run dev
 
 ```bash
 npm run build
+npm run verify
 npm run preview
 ```
 
@@ -85,6 +88,21 @@ This reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your shell or l
 - `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
 - `HISTORYLENS_SMOKE_PROJECT_ID` (optional; without it, the script creates and deletes a temporary public project)
 
+### 6. Optional demo seed
+
+```bash
+npm run seed:demo
+```
+
+The seed command signs in with normal Supabase auth and creates or refreshes a small public Blackpool demo project. It uses these variables:
+
+- `HISTORYLENS_SEED_EMAIL`
+- `HISTORYLENS_SEED_PASSWORD`
+- `HISTORYLENS_SEED_PROJECT_NAME` (optional; defaults to `HistoryLens Demo Seed`)
+- `HISTORYLENS_SEED_RESET=true` (optional; deletes existing seed projects with the same name for that user before recreating)
+
+If seed-specific credentials are not set, the command falls back to `HISTORYLENS_SMOKE_OWNER_EMAIL` and `HISTORYLENS_SMOKE_OWNER_PASSWORD`.
+
 ## Deploy To Vercel
 
 ### 1. Import repo into Vercel
@@ -101,6 +119,7 @@ This reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your shell or l
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_MAPTILER_KEY` (optional, only if you use historic map overlays)
+- `VITE_ENABLE_SERVICE_WORKER` (optional; set to `true` only after an offline/browser pass)
 
 ### 3. Update Supabase auth URLs
 
@@ -142,7 +161,6 @@ public/
 
 - Dedicated API documentation
 - End-to-end test suite
-- One-command local Supabase bootstrap/seed script
 - Formal production deployment runbook
 
 ## Scripts
@@ -152,5 +170,7 @@ From `package.json`:
 - `npm run dev` - start Vite dev server
 - `npm run build` - build production assets
 - `npm run preview` - preview production build locally
+- `npm run verify` - run production build, read-only Supabase smoke, and moderation smoke
+- `npm run seed:demo` - create or refresh a small authenticated Supabase demo project
 - `npm run smoke:geojson` - verify core Supabase reads against the current environment
 - `npm run smoke:moderation` - verify authenticated request, submission, review-note, approval, and cleanup flow when smoke credentials are configured

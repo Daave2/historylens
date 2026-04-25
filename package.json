@@ -7,15 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "verify": "npm run build && npm run smoke:geojson && npm run smoke:moderation",
+    "seed:demo": "node scripts/seed-demo.js",
     "smoke:geojson": "node test-geojson.js",
     "smoke:moderation": "node test-moderation-smoke.js"
   },
   "devDependencies": {
-    "vite": "^7.3.1"
+    "vite": "^7.3.2"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
-    "leaflet": "^1.9.4",
-    "uuid": "^13.0.0"
+    "leaflet": "^1.9.4"
   }
 }

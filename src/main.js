@@ -92,17 +92,45 @@ function getBasePath() {
   return base.endsWith('/') ? base : `${base}/`;
 }
 
+function isServiceWorkerEnabled() {
+  return String(import.meta.env.VITE_ENABLE_SERVICE_WORKER || '').toLowerCase() === 'true';
+}
+
+async function clearServiceWorkers() {
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  const basePath = getBasePath();
+
+  await Promise.all(
+    registrations
+      .filter((registration) => {
+        try {
+          return new URL(registration.scope).pathname.startsWith(basePath);
+        } catch {
+          return true;
+        }
+      })
+      .map((registration) => registration.unregister())
+  );
+}
+
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  // Temporary safety mode: clear any existing worker to avoid stale shell/cache lockups.
-  // Once startup is fully stable in production we can re-enable registration.
-  navigator.serviceWorker.getRegistrations()
-    .then((registrations) => {
-      registrations.forEach((registration) => registration.unregister());
-    })
-    .catch((err) => {
-      console.warn('Could not clear service worker registrations:', err);
-    });
+
+  if (!isServiceWorkerEnabled()) {
+    clearServiceWorkers()
+      .catch((err) => {
+        console.warn('Could not clear service worker registrations:', err);
+      });
+    return;
+  }
+
+  window.addEventListener('load', () => {
+    const basePath = getBasePath();
+    navigator.serviceWorker.register(`${basePath}sw.js`, { scope: basePath })
+      .catch((err) => {
+        console.warn('Could not register service worker:', err);
+      });
+  });
 }
 
 function isStandaloneMode() {
@@ -913,12 +941,7 @@ async function initProjectView(project) {
                 confidence: data.confidence
               });
               sidebar.setProject(currentProject, permissions, currentUserRole);
-              showToast(
-                data.images?.length
-                  ? 'Entry suggestion submitted (images can be added after approval).'
-                  : 'Entry suggestion submitted for approval.',
-                'success'
-              );
+              showToast('Entry suggestion submitted for approval.', 'success');
               return;
             } else {
               throw new Error('You need edit access to add timeline entries.');

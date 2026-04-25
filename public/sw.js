@@ -1,4 +1,8 @@
-const CACHE_NAME = 'historylens-static-v2';
+const CACHE_PREFIX = 'historylens';
+const CACHE_VERSION = 'v3';
+const SHELL_CACHE = `${CACHE_PREFIX}-shell-${CACHE_VERSION}`;
+const ASSET_CACHE = `${CACHE_PREFIX}-assets-${CACHE_VERSION}`;
+
 const BASE_PATH = (() => {
   const path = new URL(self.registration.scope).pathname;
   return path.endsWith('/') ? path : `${path}/`;
@@ -11,14 +15,18 @@ function withBase(path) {
 }
 
 const APP_SHELL = [
+  withBase(''),
+  withBase('index.html'),
   withBase('manifest.json'),
   withBase('favicon.svg')
 ];
 
+const ASSET_RE = /\.(?:js|css|png|jpg|jpeg|svg|webp|woff2?)$/i;
+
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL))
   );
 });
 
@@ -26,7 +34,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
       keys
-        .filter((key) => key !== CACHE_NAME)
+        .filter((key) => key.startsWith(CACHE_PREFIX) && key !== SHELL_CACHE && key !== ASSET_CACHE)
         .map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
@@ -42,12 +50,21 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match(withBase('index.html')) || caches.match(withBase('')))
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const responseToCache = response.clone();
+            caches.open(SHELL_CACHE).then((cache) => cache.put(withBase('index.html'), responseToCache));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request)
+          .then((cached) => cached || caches.match(withBase('index.html')) || caches.match(withBase(''))))
     );
     return;
   }
 
-  if (!/\.(?:js|css|png|jpg|jpeg|svg|webp|woff2?|json)$/i.test(url.pathname)) return;
+  if (!ASSET_RE.test(url.pathname)) return;
 
   event.respondWith(
     caches.match(request).then((cached) => {
@@ -58,7 +75,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         }
         const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+        caches.open(ASSET_CACHE).then((cache) => cache.put(request, responseToCache));
         return response;
       });
     })

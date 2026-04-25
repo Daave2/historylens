@@ -154,9 +154,9 @@ function normalizePlaceCategory(category) {
     if (standard.has(raw)) return raw;
 
     if (/(guest|hotel|inn|pub|shop|store|market|cafe|restaurant|bar|commercial)/.test(raw)) return 'commercial';
-    if (/(church|chapel|museum|monument|historic|landmark|memorial|castle|heritage)/.test(raw)) return 'landmark';
-    if (/(park|wood|forest|garden|river|lake|beach|natural|meadow)/.test(raw)) return 'natural';
-    if (/(station|rail|railway|bridge|road|school|hospital|infrastructure)/.test(raw)) return 'infrastructure';
+    if (/(church|chapel|museum|monument|historic|landmark|memorial|castle|heritage|tower|pier|theatre|cinema|ballroom|attraction)/.test(raw)) return 'landmark';
+    if (/(park|wood|forest|garden|river|lake|beach|natural|meadow|common|green)/.test(raw)) return 'natural';
+    if (/(station|rail|railway|bridge|road|school|hospital|infrastructure|transport|tram|bus)/.test(raw)) return 'infrastructure';
     if (/(house|home|residential|flat|apartment|dwelling)/.test(raw)) return 'residential';
 
     // Safe fallback for legacy DB constraints.

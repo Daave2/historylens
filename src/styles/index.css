@@ -1467,6 +1467,14 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-muted);
 }
 
+.entry-suggestion-image-note {
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(148, 163, 184, 0.08);
+}
+
 /* Image upload */
 .image-upload-zone {
   border: 2px dashed var(--glass-border);
