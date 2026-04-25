@@ -1,26 +1,17 @@
 import {
-  getTimeEntriesForPlace,
-  getImagesForEntry,
   deleteTimeEntry,
   deletePlace,
-  getProfiles,
-  getComments,
   addComment,
   updatePlace,
   getPlace,
-  getOverviewHistory,
   restoreOverviewRevision,
   createOverviewRevision,
   addPlaceNameAlias,
   updatePlaceNameAlias,
   deletePlaceNameAlias,
-  getPlaceNameAliasHistory,
-  getPrimaryPlaceImage,
-  getImageVoteSummary,
   voteImage,
   setPlacePinnedImage,
-  getPlaceLocationHistory,
-  getEntrySourcesForEntries
+  getPlaceDetailBundle
 } from '../data/store.js';
 import { escapeAttr, escapeHtml, safeUrl } from '../utils/sanitize.js';
 import { extractResearchLinksFromSummary } from '../utils/researchLinks.js';
@@ -50,7 +41,6 @@ export default class PlaceDetail {
   }
 
   async show(place, isReadOnly = false, currentUser = null, currentUserRole = null, canSuggest = false) {
-    this.place = place;
     const canSuggestOnly = canSuggest && isReadOnly;
     const canAddEntry = canSuggest || !isReadOnly;
     const canVoteImages = !!currentUser;
@@ -60,44 +50,32 @@ export default class PlaceDetail {
     const aliasActionLabel = canSuggestOnly ? 'Suggest Historic Name' : 'Add Historic Name';
     const moveActionLabel = 'Suggest Location Fix';
 
-    const [entries, comments, overviewHistory, primaryImage, locationHistory, aliasHistory] = await Promise.all([
-      getTimeEntriesForPlace(place.id),
-      getComments(place.id),
-      getOverviewHistory(place.id, 100),
-      getPrimaryPlaceImage(place.id),
-      getPlaceLocationHistory(place.id, 100),
-      getPlaceNameAliasHistory(place.id, 500)
-    ]);
-
-    const entriesWithImages = [];
-    const allImageIds = [];
-    for (const entry of entries) {
-      const images = await getImagesForEntry(entry.id);
-      entriesWithImages.push({ entry, images });
-      for (const img of images) {
-        allImageIds.push(img.id);
-      }
-    }
-    const voteSummary = allImageIds.length > 0 ? await getImageVoteSummary(allImageIds) : {};
-    const entrySourceMap = await getEntrySourcesForEntries(entries.map(e => e.id));
+    const detailBundle = await getPlaceDetailBundle(place.id, {
+      place,
+      overviewLimit: 100,
+      locationLimit: 100,
+      aliasHistoryLimit: 500
+    });
+    place = detailBundle.place || place;
+    this.place = place;
+    const {
+      entries,
+      entriesWithImages,
+      comments,
+      overviewHistory,
+      primaryImage,
+      locationHistory,
+      aliasHistory,
+      voteSummary,
+      entrySourceMap,
+      profiles
+    } = detailBundle;
 
     const historicalNames = (place.aliases || []).slice().sort((a, b) => {
       const aEnd = a.endYear ?? Infinity;
       const bEnd = b.endYear ?? Infinity;
       return aEnd - bEnd;
     });
-
-    // Fetch user profiles for attribution.
-    const userIds = [
-      place.createdBy,
-      ...entries.map(e => e.createdBy),
-      ...comments.map(c => c.user_id),
-      ...overviewHistory.map(r => r.createdBy),
-      ...historicalNames.map(alias => alias.createdBy),
-      ...locationHistory.map(change => change.changed_by),
-      ...aliasHistory.map(change => change.changedBy)
-    ];
-    const profiles = await getProfiles(userIds);
 
     const catColour = {
       residential: '#a78bfa', commercial: '#f59e0b', landmark: '#f472b6',

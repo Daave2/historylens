@@ -993,6 +993,7 @@ async function initProjectView(project) {
       updateMarkerStates(mapView, sidebar.places, sidebar.entriesByPlaceId, selectedYear, sidebar.markerStatesByPlaceId);
     },
     onQueryChange: () => queueSnapshotRefresh(),
+    onLoadMore: () => loadProjectSnapshot({ append: true }),
     onAddPlace: () => startAddPlaceFlow(),
     onImport: async () => {
       try {
@@ -1064,12 +1065,13 @@ async function initProjectView(project) {
   });
 
   let snapshotRefreshToken = 0;
-  const loadProjectSnapshot = async ({ updateRange = false } = {}) => {
+  const loadProjectSnapshot = async ({ updateRange = false, append = false } = {}) => {
     const token = ++snapshotRefreshToken;
     await sidebar.loadPlaces(project.id, {
       bounds: mapView.getViewportBounds(),
       year: selectedYear,
-      useSnapshot: true
+      useSnapshot: true,
+      append
     });
     if (token !== snapshotRefreshToken) return;
 

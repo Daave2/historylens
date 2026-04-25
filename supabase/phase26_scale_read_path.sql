@@ -11,6 +11,15 @@ CREATE INDEX IF NOT EXISTS idx_entry_sources_source_entry
 CREATE INDEX IF NOT EXISTS idx_sources_project_title
   ON public.sources(project_id, title);
 
+CREATE INDEX IF NOT EXISTS idx_time_entries_place_year_created
+  ON public.time_entries(place_id, year_start, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_place_alias_history_place_created
+  ON public.place_name_alias_history(place_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_entry_sources_entry_created
+  ON public.entry_sources(entry_id, created_at);
+
 CREATE OR REPLACE FUNCTION public.get_project_year_bounds(p_project_id UUID)
 RETURNS TABLE (
   min_year INTEGER,
@@ -50,6 +59,174 @@ BEGIN
   FROM public.places p
   LEFT JOIN public.time_entries te ON te.place_id = p.id
   WHERE p.project_id = p_project_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_place_detail_bundle(
+  p_place_id UUID,
+  p_overview_limit INTEGER DEFAULT 100,
+  p_location_limit INTEGER DEFAULT 100,
+  p_alias_history_limit INTEGER DEFAULT 500
+)
+RETURNS TABLE (
+  place JSONB,
+  entries JSONB,
+  images JSONB,
+  comments JSONB,
+  overview_history JSONB,
+  location_history JSONB,
+  alias_history JSONB,
+  entry_sources JSONB,
+  image_votes JSONB,
+  profiles JSONB
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_project_id UUID;
+  v_overview_limit INTEGER := LEAST(GREATEST(COALESCE(p_overview_limit, 100), 0), 500);
+  v_location_limit INTEGER := LEAST(GREATEST(COALESCE(p_location_limit, 100), 0), 500);
+  v_alias_history_limit INTEGER := LEAST(GREATEST(COALESCE(p_alias_history_limit, 500), 0), 1000);
+BEGIN
+  IF p_place_id IS NULL THEN
+    RAISE EXCEPTION 'Place id is required';
+  END IF;
+
+  SELECT p.project_id
+  INTO v_project_id
+  FROM public.places p
+  WHERE p.id = p_place_id;
+
+  IF v_project_id IS NULL THEN
+    RAISE EXCEPTION 'Place not found';
+  END IF;
+
+  IF NOT (
+    public.is_project_public(v_project_id)
+    OR public.is_project_owner(v_project_id)
+    OR public.has_project_role(v_project_id, ARRAY['editor', 'admin', 'pending'])
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to read place';
+  END IF;
+
+  RETURN QUERY
+  WITH place_row AS (
+    SELECT p.*
+    FROM public.places p
+    WHERE p.id = p_place_id
+  ),
+  alias_rows AS (
+    SELECT a.*
+    FROM public.place_name_aliases a
+    WHERE a.place_id = p_place_id
+    ORDER BY a.start_year NULLS FIRST, a.alias
+  ),
+  entry_rows AS (
+    SELECT te.*
+    FROM public.time_entries te
+    WHERE te.place_id = p_place_id
+    ORDER BY te.year_start ASC, te.created_at ASC
+  ),
+  image_rows AS (
+    SELECT i.*
+    FROM public.images i
+    JOIN entry_rows er ON er.id = i.time_entry_id
+    WHERE COALESCE(i.moderation_status, 'approved') = 'approved'
+    ORDER BY i.created_at ASC
+  ),
+  comment_rows AS (
+    SELECT c.*
+    FROM public.comments c
+    WHERE c.place_id = p_place_id
+    ORDER BY c.created_at ASC
+  ),
+  overview_rows AS (
+    SELECT poh.*
+    FROM public.place_overview_history poh
+    WHERE poh.place_id = p_place_id
+    ORDER BY poh.created_at DESC
+    LIMIT v_overview_limit
+  ),
+  location_rows AS (
+    SELECT plh.*
+    FROM public.place_location_history plh
+    WHERE plh.place_id = p_place_id
+    ORDER BY plh.created_at DESC
+    LIMIT v_location_limit
+  ),
+  alias_history_rows AS (
+    SELECT pah.*
+    FROM public.place_name_alias_history pah
+    WHERE pah.place_id = p_place_id
+    ORDER BY pah.created_at DESC
+    LIMIT v_alias_history_limit
+  ),
+  entry_source_rows AS (
+    SELECT
+      es.id,
+      es.entry_id,
+      es.source_id,
+      es.page_or_section,
+      es.quote,
+      es.created_at,
+      to_jsonb(s) AS sources
+    FROM public.entry_sources es
+    JOIN entry_rows er ON er.id = es.entry_id
+    JOIN public.sources s ON s.id = es.source_id
+    ORDER BY es.created_at ASC
+  ),
+  image_vote_rows AS (
+    SELECT
+      iv.image_id,
+      COALESCE(SUM(iv.vote), 0)::integer AS score,
+      COUNT(iv.id)::integer AS total_votes,
+      COALESCE(MAX(iv.vote) FILTER (WHERE iv.user_id = (SELECT auth.uid())), 0)::integer AS user_vote
+    FROM public.image_votes iv
+    JOIN image_rows ir ON ir.id = iv.image_id
+    GROUP BY iv.image_id
+  ),
+  profile_ids AS (
+    SELECT pr.created_by AS id FROM place_row pr WHERE pr.created_by IS NOT NULL
+    UNION SELECT ar.created_by FROM alias_rows ar WHERE ar.created_by IS NOT NULL
+    UNION SELECT er.created_by FROM entry_rows er WHERE er.created_by IS NOT NULL
+    UNION SELECT ir.created_by FROM image_rows ir WHERE ir.created_by IS NOT NULL
+    UNION SELECT cr.user_id FROM comment_rows cr WHERE cr.user_id IS NOT NULL
+    UNION SELECT oh.created_by FROM overview_rows oh WHERE oh.created_by IS NOT NULL
+    UNION SELECT lr.changed_by FROM location_rows lr WHERE lr.changed_by IS NOT NULL
+    UNION SELECT ah.changed_by FROM alias_history_rows ah WHERE ah.changed_by IS NOT NULL
+  ),
+  profile_rows AS (
+    SELECT pf.id, pf.email, pf.display_name, pf.avatar_url
+    FROM public.profiles pf
+    JOIN profile_ids pi ON pi.id = pf.id
+  )
+  SELECT
+    jsonb_build_object(
+      'id', pr.id,
+      'project_id', pr.project_id,
+      'name', pr.name,
+      'description', pr.description,
+      'lat', pr.lat,
+      'lng', pr.lng,
+      'category', pr.category,
+      'created_by', pr.created_by,
+      'pinned_image_id', pr.pinned_image_id,
+      'created_at', pr.created_at,
+      'updated_at', pr.updated_at,
+      'aliases', COALESCE((SELECT jsonb_agg(to_jsonb(ar) ORDER BY ar.start_year NULLS FIRST, ar.alias) FROM alias_rows ar), '[]'::jsonb)
+    ) AS place,
+    COALESCE((SELECT jsonb_agg(to_jsonb(er) ORDER BY er.year_start ASC, er.created_at ASC) FROM entry_rows er), '[]'::jsonb) AS entries,
+    COALESCE((SELECT jsonb_agg(to_jsonb(ir) ORDER BY ir.created_at ASC) FROM image_rows ir), '[]'::jsonb) AS images,
+    COALESCE((SELECT jsonb_agg(to_jsonb(cr) ORDER BY cr.created_at ASC) FROM comment_rows cr), '[]'::jsonb) AS comments,
+    COALESCE((SELECT jsonb_agg(to_jsonb(oh) ORDER BY oh.created_at DESC) FROM overview_rows oh), '[]'::jsonb) AS overview_history,
+    COALESCE((SELECT jsonb_agg(to_jsonb(lr) ORDER BY lr.created_at DESC) FROM location_rows lr), '[]'::jsonb) AS location_history,
+    COALESCE((SELECT jsonb_agg(to_jsonb(ah) ORDER BY ah.created_at DESC) FROM alias_history_rows ah), '[]'::jsonb) AS alias_history,
+    COALESCE((SELECT jsonb_agg(to_jsonb(esr) ORDER BY esr.created_at ASC) FROM entry_source_rows esr), '[]'::jsonb) AS entry_sources,
+    COALESCE((SELECT jsonb_agg(to_jsonb(ivr) ORDER BY ivr.image_id) FROM image_vote_rows ivr), '[]'::jsonb) AS image_votes,
+    COALESCE((SELECT jsonb_agg(to_jsonb(pfr) ORDER BY pfr.email NULLS LAST, pfr.id) FROM profile_rows pfr), '[]'::jsonb) AS profiles
+  FROM place_row pr;
 END;
 $$;
 

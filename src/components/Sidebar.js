@@ -3,7 +3,7 @@ import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
 
 export default class Sidebar {
-    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange, onQueryChange }) {
+    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange, onQueryChange, onLoadMore }) {
         this.el = document.getElementById('sidebar');
         this.listEl = document.getElementById('place-list');
         this.countEl = document.getElementById('place-count');
@@ -35,6 +35,7 @@ export default class Sidebar {
         this.onRequestAccess = onRequestAccess;
         this.onFilterChange = onFilterChange;
         this.onQueryChange = onQueryChange;
+        this.onLoadMore = onLoadMore;
         this.places = [];
         this.entriesByPlaceId = {};
         this.placeSummariesById = {};
@@ -43,6 +44,7 @@ export default class Sidebar {
         this.hasLoadedPlaces = false;
         this.usesBoundedSnapshots = false;
         this.snapshotHasMore = false;
+        this.snapshotNextCursor = null;
         this.snapshotProjectHasPlaces = null;
         this.loadRequestToken = 0;
         this.activeId = null;
@@ -363,11 +365,13 @@ export default class Sidebar {
         this.settingsBtn.title = `Project Settings · ${accessLabel}, ${submissionLabel} pending`;
     }
 
-    async loadPlaces(projectId, { bounds = null, year = null, useSnapshot = false, limit = 250 } = {}) {
+    async loadPlaces(projectId, { bounds = null, year = null, useSnapshot = false, append = false, limit = 250 } = {}) {
         const token = ++this.loadRequestToken;
         this.usesBoundedSnapshots = useSnapshot;
 
         if (useSnapshot) {
+            if (append && !this.snapshotNextCursor) return;
+
             const search = this.searchInput?.value || '';
             const category = this.categoryFilter?.value || '';
             const snapshot = await getProjectMapSnapshot(projectId, {
@@ -375,29 +379,49 @@ export default class Sidebar {
                 year,
                 category,
                 search,
+                cursor: append ? this.snapshotNextCursor : null,
                 limit
             });
             if (token !== this.loadRequestToken) return;
 
             let snapshotProjectHasPlaces = snapshot.items.length > 0 ? true : null;
-            if (!snapshotProjectHasPlaces && bounds && !search.trim() && !category) {
+            if (!append && !snapshotProjectHasPlaces && bounds && !search.trim() && !category) {
                 const presenceSnapshot = await getProjectMapSnapshot(projectId, { year, limit: 1 });
                 if (token !== this.loadRequestToken) return;
                 snapshotProjectHasPlaces = presenceSnapshot.items.length > 0;
             }
 
-            this.places = snapshot.items.map((item) => item.place);
-            this.entriesByPlaceId = {};
-            this.placeSummariesById = Object.fromEntries(snapshot.items.map((item) => [item.place.id, {
-                entryCount: item.entryCount,
-                firstYear: item.firstYear,
-                lastYear: item.lastYear
-            }]));
-            this.markerStatesByPlaceId = Object.fromEntries(snapshot.items.map((item) => [item.place.id, item.markerState]));
+            const existingPlaceIds = new Set(this.places.map((place) => place.id));
+            const incomingItems = append
+                ? snapshot.items.filter((item) => !existingPlaceIds.has(item.place.id))
+                : snapshot.items;
+            const incomingPlaces = incomingItems.map((item) => item.place);
+
+            this.places = append ? [...this.places, ...incomingPlaces] : incomingPlaces;
+            this.entriesByPlaceId = append ? this.entriesByPlaceId : {};
+            this.placeSummariesById = {
+                ...(append ? this.placeSummariesById : {}),
+                ...Object.fromEntries(incomingItems.map((item) => [item.place.id, {
+                    entryCount: item.entryCount,
+                    firstYear: item.firstYear,
+                    lastYear: item.lastYear
+                }]))
+            };
+            this.markerStatesByPlaceId = {
+                ...(append ? this.markerStatesByPlaceId : {}),
+                ...Object.fromEntries(incomingItems.map((item) => [item.place.id, item.markerState]))
+            };
             this.snapshotHasMore = !!snapshot.nextCursor;
-            this.snapshotProjectHasPlaces = snapshotProjectHasPlaces;
-            this.primaryImagesByPlaceId = await getPrimaryPlaceImages(this.places);
+            this.snapshotNextCursor = snapshot.nextCursor || null;
+            this.snapshotProjectHasPlaces = append
+                ? (this.snapshotProjectHasPlaces ?? (this.places.length > 0))
+                : snapshotProjectHasPlaces;
+
+            const nextPrimaryImages = await getPrimaryPlaceImages(append ? incomingPlaces : this.places);
             if (token !== this.loadRequestToken) return;
+            this.primaryImagesByPlaceId = append
+                ? { ...this.primaryImagesByPlaceId, ...nextPrimaryImages }
+                : nextPrimaryImages;
             this.hasLoadedPlaces = true;
             this.countEl.textContent = `${this.places.length}${this.snapshotHasMore ? '+' : ''}`;
             await this.renderPlaces(this.places);
@@ -413,6 +437,7 @@ export default class Sidebar {
         this.placeSummariesById = {};
         this.markerStatesByPlaceId = {};
         this.snapshotHasMore = false;
+        this.snapshotNextCursor = null;
         this.snapshotProjectHasPlaces = null;
         this.primaryImagesByPlaceId = await getPrimaryPlaceImages(this.places, { entriesByPlaceId: this.entriesByPlaceId });
         if (token !== this.loadRequestToken) return;
@@ -567,7 +592,37 @@ export default class Sidebar {
         if (this.renderGeneration === currentGen) {
             this.listEl.innerHTML = ''; // clear again just in case another sync operation dirtied it
             this.listEl.appendChild(fragment);
+            this.renderSnapshotLoadMore();
         }
+    }
+
+    renderSnapshotLoadMore() {
+        this.listEl.querySelector('.place-list-more-wrap')?.remove();
+        if (!this.usesBoundedSnapshots || !this.snapshotHasMore) return;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'place-list-more-wrap';
+        wrap.innerHTML = `
+          <button class="place-list-more" type="button">
+            <span>Load more places</span>
+            <small>${escapeHtml(String(this.places.length))} shown</small>
+          </button>
+        `;
+
+        const button = wrap.querySelector('.place-list-more');
+        button.addEventListener('click', async () => {
+            button.disabled = true;
+            button.querySelector('span').textContent = 'Loading...';
+            try {
+                await this.onLoadMore?.();
+            } catch (err) {
+                console.warn('Could not load more places:', err);
+                button.disabled = false;
+                button.querySelector('span').textContent = 'Load more places';
+            }
+        });
+
+        this.listEl.appendChild(wrap);
     }
 
     getProjectDescriptionPlaceholder() {

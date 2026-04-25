@@ -145,6 +145,19 @@ const mapProjectRoleEvent = (row) => ({
     createdAt: new Date(row.created_at)
 });
 
+function mapProfileRows(rows = []) {
+    const map = {};
+    (rows || []).forEach(p => {
+        if (!p?.id) return;
+        map[p.id] = {
+            email: p.email,
+            display_name: p.display_name,
+            avatar_url: p.avatar_url
+        };
+    });
+    return map;
+}
+
 const mapProjectMapSnapshotRow = (row) => {
     const aliases = Array.isArray(row.aliases) ? row.aliases.map(mapAlias) : [];
     const place = mapPlace({
@@ -426,15 +439,7 @@ export async function getProfiles(userIds) {
     if (!userIds || userIds.length === 0) return {};
     const uniqueIds = [...new Set(userIds.filter(Boolean))];
     const { data } = await supabase.from('profiles').select('id, email, display_name, avatar_url').in('id', uniqueIds);
-    const map = {};
-    (data || []).forEach(p => {
-        map[p.id] = {
-            email: p.email,
-            display_name: p.display_name,
-            avatar_url: p.avatar_url
-        };
-    });
-    return map;
+    return mapProfileRows(data || []);
 }
 
 export async function updateProfile(updates) {
@@ -1196,6 +1201,143 @@ async function getProjectMapSnapshotFallback(projectId, { bounds = null, year = 
         nextCursor: null,
         schemaReady: false
     };
+}
+
+function mapPlaceDetailBundleRow(row, schemaReady = true) {
+    const placeRow = row?.place || null;
+    if (!placeRow) {
+        return {
+            place: null,
+            entries: [],
+            entriesWithImages: [],
+            comments: [],
+            overviewHistory: [],
+            primaryImage: null,
+            locationHistory: [],
+            aliasHistory: [],
+            voteSummary: {},
+            entrySourceMap: {},
+            profiles: {},
+            schemaReady
+        };
+    }
+
+    const aliases = Array.isArray(placeRow.aliases) ? placeRow.aliases.map(mapAlias) : [];
+    const place = mapPlace(placeRow, aliases);
+    const entries = Array.isArray(row.entries) ? row.entries.map(mapEntry) : [];
+    const imagesByEntryId = Object.fromEntries(entries.map((entry) => [entry.id, []]));
+    const imageRows = Array.isArray(row.images) ? row.images : [];
+
+    imageRows.forEach((imageRow) => {
+        const mapped = mapImage(imageRow);
+        const withUrl = { ...mapped, publicUrl: getImageUrl(mapped.storagePath) };
+        if (!imagesByEntryId[withUrl.timeEntryId]) imagesByEntryId[withUrl.timeEntryId] = [];
+        imagesByEntryId[withUrl.timeEntryId].push(withUrl);
+    });
+
+    const voteSummary = {};
+    (Array.isArray(row.image_votes) ? row.image_votes : []).forEach((voteRow) => {
+        if (!voteRow?.image_id) return;
+        voteSummary[voteRow.image_id] = {
+            score: voteRow.score || 0,
+            totalVotes: voteRow.total_votes || 0,
+            userVote: voteRow.user_vote || 0
+        };
+    });
+
+    const entrySourceMap = {};
+    (Array.isArray(row.entry_sources) ? row.entry_sources : []).forEach((entrySourceRow) => {
+        if (!entrySourceRow?.entry_id) return;
+        if (!entrySourceMap[entrySourceRow.entry_id]) entrySourceMap[entrySourceRow.entry_id] = [];
+        entrySourceMap[entrySourceRow.entry_id].push(mapEntrySource(entrySourceRow));
+    });
+
+    const allImages = collectPlaceTimelineImages(entries, imagesByEntryId);
+
+    return {
+        place,
+        entries,
+        entriesWithImages: entries.map((entry) => ({
+            entry,
+            images: imagesByEntryId[entry.id] || []
+        })),
+        comments: Array.isArray(row.comments) ? row.comments : [],
+        overviewHistory: Array.isArray(row.overview_history) ? row.overview_history.map(mapOverviewRevision) : [],
+        primaryImage: pickPrimaryPlaceImage(place, allImages, voteSummary),
+        locationHistory: Array.isArray(row.location_history) ? row.location_history : [],
+        aliasHistory: Array.isArray(row.alias_history) ? row.alias_history.map(mapAliasHistory) : [],
+        voteSummary,
+        entrySourceMap,
+        profiles: mapProfileRows(Array.isArray(row.profiles) ? row.profiles : []),
+        schemaReady
+    };
+}
+
+async function getPlaceDetailBundleFallback(placeId, { place: providedPlace = null, overviewLimit = 100, locationLimit = 100, aliasHistoryLimit = 500 } = {}) {
+    const place = providedPlace || await getPlace(placeId);
+    if (!place) return mapPlaceDetailBundleRow(null, false);
+
+    const [entries, comments, overviewHistory, locationHistory, aliasHistory] = await Promise.all([
+        getTimeEntriesForPlace(placeId),
+        getComments(placeId),
+        getOverviewHistory(placeId, overviewLimit),
+        getPlaceLocationHistory(placeId, locationLimit),
+        getPlaceNameAliasHistory(placeId, aliasHistoryLimit)
+    ]);
+    const imagesByEntryId = await getImagesForEntries(entries.map((entry) => entry.id));
+    const imageIds = entries.flatMap((entry) => (imagesByEntryId[entry.id] || []).map((image) => image.id));
+    const voteSummary = imageIds.length > 0 ? await getImageVoteSummary(imageIds) : {};
+    const entrySourceMap = await getEntrySourcesForEntries(entries.map((entry) => entry.id));
+    const allImages = collectPlaceTimelineImages(entries, imagesByEntryId);
+    const profiles = await getProfiles([
+        place.createdBy,
+        ...entries.map((entry) => entry.createdBy),
+        ...Object.values(imagesByEntryId).flatMap((images) => images.map((image) => image.createdBy)),
+        ...comments.map((comment) => comment.user_id),
+        ...overviewHistory.map((revision) => revision.createdBy),
+        ...(place.aliases || []).map((alias) => alias.createdBy),
+        ...locationHistory.map((change) => change.changed_by),
+        ...aliasHistory.map((change) => change.changedBy)
+    ]);
+
+    return {
+        place,
+        entries,
+        entriesWithImages: entries.map((entry) => ({
+            entry,
+            images: imagesByEntryId[entry.id] || []
+        })),
+        comments,
+        overviewHistory,
+        primaryImage: pickPrimaryPlaceImage(place, allImages, voteSummary),
+        locationHistory,
+        aliasHistory,
+        voteSummary,
+        entrySourceMap,
+        profiles,
+        schemaReady: false
+    };
+}
+
+export async function getPlaceDetailBundle(placeId, { place = null, overviewLimit = 100, locationLimit = 100, aliasHistoryLimit = 500 } = {}) {
+    const params = {
+        p_place_id: placeId,
+        p_overview_limit: safeInt(overviewLimit, 100),
+        p_location_limit: safeInt(locationLimit, 100),
+        p_alias_history_limit: safeInt(aliasHistoryLimit, 500)
+    };
+
+    const { data, error } = await supabase.rpc('get_place_detail_bundle', params);
+    if (error) {
+        if (isMissingSchemaError(error)) {
+            return getPlaceDetailBundleFallback(placeId, { place, overviewLimit, locationLimit, aliasHistoryLimit });
+        }
+        console.error(error);
+        throw error;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return mapPlaceDetailBundleRow(row, true);
 }
 
 export async function getPlace(id) {

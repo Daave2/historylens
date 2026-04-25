@@ -33,6 +33,8 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - Hardened structured citations by sanitizing source chip URLs, carrying selected sources through entry suggestions, linking them on approval, and enforcing same-project citation links.
 - Added `npm run smoke:citations` to keep the structured citation wiring covered by `npm run verify`.
 - Added the Phase 26 read-path foundation with bounded map snapshot/year-bound RPCs, store wrappers, sidebar/map snapshot loading, and `npm run smoke:scale-read`.
+- Added cursor "load more" handling for bounded map/sidebar snapshots.
+- Added a bundled place-detail read RPC and switched PlaceDetail to hydrate from it with a pre-migration fallback.
 
 ## Remaining
 
@@ -47,7 +49,7 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
    - optional `HISTORYLENS_SMOKE_PROJECT_ID`
 6. Run the full authenticated moderation smoke test after those accounts exist.
-7. Add cursor "load more" handling for bounded map/sidebar snapshots.
+7. Add a paginated review queue RPC so moderation screens can scale beyond the current client-side queue slice.
 8. Re-check map/sidebar performance with a larger production-like dataset.
 9. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
 
@@ -59,7 +61,7 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - `npm run smoke:enrichment` passes with mocked OSM/Wikidata/Wikipedia responses.
 - `npm run smoke:collab-scale` passes static checks for the Phase 24 collaboration/scale foundation.
 - `npm run smoke:citations` passes static checks for structured citation hardening.
-- `npm run smoke:scale-read` passes static checks for the Phase 26 bounded read-path foundation and sidebar/map snapshot wiring.
+- `npm run smoke:scale-read` passes static checks for the Phase 26 bounded read-path foundation, cursor loading, place-detail bundling, and sidebar/map snapshot wiring.
 - `npm run smoke:moderation` exits successfully and reports a skip unless smoke account credentials are configured.
 - `npm run seed:demo` is available for authenticated demo data seeding.
 - `npm audit --audit-level=moderate` reports 0 vulnerabilities.

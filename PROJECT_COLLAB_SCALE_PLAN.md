@@ -167,6 +167,13 @@ Definition of done:
 - Review and comment screens paginate instead of growing indefinitely.
 - Place detail opens through one bundled read rather than several dependent reads.
 
+Current status (Phase 26):
+
+- ✅ Phase 26 read-path foundation added with `get_project_map_snapshot`, `get_project_year_bounds`, viewport snapshot loading, server-side sidebar search/category filters, and marker state summaries.
+- ✅ Bounded snapshot cursors are wired into the sidebar with a "Load more places" control so large result sets can page in without reverting to full-project loads.
+- ✅ Place detail now has a bundled read RPC for place, aliases, entries, images, votes, comments, history, citations, and profiles.
+- Remaining: paginated review queue RPC, export batching, sidebar virtualization, and large-dataset performance testing.
+
 ## Phase 27: Realtime And Presence
 
 Purpose: make collaboration feel alive without introducing edit conflicts.
@@ -256,10 +263,12 @@ Current status (Phase 26):
 
 - ✅ `supabase/phase26_scale_read_path.sql` adds `get_project_map_snapshot` and `get_project_year_bounds`.
 - ✅ Store helpers expose `getProjectMapSnapshot` with a pre-migration fallback.
+- ✅ Store helpers expose `getPlaceDetailBundle` with a pre-migration fallback.
 - ✅ `getProjectYearRange` now prefers the bounded year-bounds RPC before falling back to client aggregation.
 - ✅ Sidebar/map loading now refreshes from bounded viewport snapshots on map movement, search/category changes, and year changes.
+- ✅ Place detail now hydrates through the bundled read helper instead of separate entry/image/comment/history/source calls.
 - ✅ `npm run smoke:scale-read` covers the Phase 26 read-path wiring.
-- Remaining: add cursor "load more" UI, tune primary image loading for large visible result sets, and performance-test with generated large projects.
+- Remaining: paginated review queue RPC, export batching, sidebar virtualization, and performance-test with generated large projects.
 
 ## Watchpoints
 
