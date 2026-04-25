@@ -2200,11 +2200,27 @@ input[type="range"]::-moz-range-thumb {
   margin-bottom: var(--space-sm);
 }
 
+.timeline-research-block {
+  margin-bottom: var(--space-sm);
+  padding: var(--space-sm);
+  background: rgba(52, 211, 153, 0.06);
+  border-left: 2px solid rgba(52, 211, 153, 0.4);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.timeline-research-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--success);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .timeline-research-links {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 var(--space-sm);
 }
 
 .timeline-research-link {

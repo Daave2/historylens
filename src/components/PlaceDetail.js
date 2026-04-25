@@ -404,8 +404,11 @@ export default class PlaceDetail {
         const researchInfo = extractResearchLinksFromSummary(entry.summary || '');
         const summaryText = researchInfo.links.length > 0 ? researchInfo.summary : entry.summary || '';
         const researchLinksHtml = researchInfo.links.length > 0
-          ? `<div class="timeline-research-links">
-              ${researchInfo.links.map((link) => `<a class="timeline-research-link" href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`).join('')}
+          ? `<div class="timeline-research-block">
+              <div class="timeline-research-header">Suggested next research steps:</div>
+              <div class="timeline-research-links">
+                ${researchInfo.links.map((link) => `<a class="timeline-research-link" href="${escapeAttr(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`).join('')}
+              </div>
             </div>`
           : '';
         const sourceLabel = entry.source === SOURCE_RESEARCH_PROMPT ? 'Research lead' : entry.source;
