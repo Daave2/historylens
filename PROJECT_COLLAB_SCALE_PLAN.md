@@ -109,6 +109,15 @@ Definition of done:
 - Contributors can understand what happened to their suggestions.
 - Published entries can carry structured citations instead of only free text.
 
+Current status (Phase 25):
+
+- ✅ Rich diff previews added for all 4 submission types (place_create, entry_create, place_move, place_name_alias).
+- ✅ `sources` and `entry_sources` tables created with full RLS and indexes.
+- ✅ Store layer has CRUD for sources + batch entry source lookups.
+- ✅ Timeline entries render structured source citation chips.
+- ✅ EntryForm has inline source search/create/link workflow.
+- Remaining: bulk review tools, moderation guardrails (duplicate detection), contributor feedback loop enhancements.
+
 ## Phase 26: Scale The Read Path
 
 Purpose: stop loading whole projects into the browser.
@@ -231,13 +240,13 @@ The first foundation slice has been implemented locally:
 - Project Settings uses the bounded queue and shows access activity plus priority and reviewer assignment controls when the migration is present.
 - `npm run smoke:collab-scale` checks that the Phase 24 foundation files remain wired into the repo.
 
-Next, continue with the remaining Phase 24/25 pieces:
+Next, continue with Phase 26 (Scale The Read Path):
 
-1. Apply the Phase 24 migration to the live Supabase project.
-2. Add richer moderation diff previews for place, entry, move, and historical-name submissions.
-3. Add structured `sources` / `entry_sources` tables so research links stop living in entry summaries.
-4. Build the map snapshot RPC after the review queue is stable.
-   - This is the bigger frontend shift, so do it after the moderation/admin path is cleaner.
+1. Apply the Phase 24 + Phase 25 migrations to the live Supabase project.
+2. Build the `get_project_map_snapshot` RPC for viewport-bounded marker loading.
+3. Switch sidebar/map loading from full-project fetch to bounded viewport queries.
+4. Add server-side search for names, aliases, sources, entry titles, and summaries.
+5. Add remaining Phase 25 items (bulk review, duplicate detection) as they become needed.
 
 ## Watchpoints
 

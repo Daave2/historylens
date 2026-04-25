@@ -838,6 +838,143 @@ export async function reviewModerationSubmission(submissionId, { decision, note 
     return data;
 }
 
+// ── Sources & Citations ──────────────────────────────────
+
+const SOURCE_TYPE_ICONS = {
+    web: '🌐', archive: '📚', newspaper: '📰', book: '📖',
+    oral: '🗣️', photo: '📷', map: '🗺️', user: '👤', other: '📎'
+};
+
+const mapSource = (row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    url: row.url || null,
+    sourceType: row.source_type || 'web',
+    author: row.author || null,
+    publicationDate: row.publication_date || null,
+    notes: row.notes || '',
+    createdBy: row.created_by || null,
+    createdAt: new Date(row.created_at),
+    icon: SOURCE_TYPE_ICONS[row.source_type] || '📎'
+});
+
+const mapEntrySource = (row) => ({
+    id: row.id,
+    entryId: row.entry_id,
+    sourceId: row.source_id,
+    pageOrSection: row.page_or_section || null,
+    quote: row.quote || null,
+    createdAt: new Date(row.created_at),
+    // Joined source fields (if present from a select with source join)
+    source: row.sources ? mapSource(row.sources) : null
+});
+
+export async function getProjectSources(projectId) {
+    const { data, error } = await supabase
+        .from('sources')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('title', { ascending: true });
+
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        throw error;
+    }
+    return (data || []).map(mapSource);
+}
+
+export async function createSource({ projectId, title, url, sourceType, author, publicationDate, notes }) {
+    const session = await getSession();
+    if (!session) throw new Error('Must be signed in to create a source');
+
+    const { data, error } = await supabase
+        .from('sources')
+        .insert({
+            project_id: projectId,
+            title: (title || '').trim(),
+            url: (url || '').trim() || null,
+            source_type: sourceType || 'web',
+            author: (author || '').trim() || null,
+            publication_date: (publicationDate || '').trim() || null,
+            notes: (notes || '').trim(),
+            created_by: session.user.id
+        })
+        .select()
+        .single();
+
+    if (error) { console.error(error); throw error; }
+    return mapSource(data);
+}
+
+export async function getEntrySourcesForEntry(entryId) {
+    const { data, error } = await supabase
+        .from('entry_sources')
+        .select('*, sources(*)')
+        .eq('entry_id', entryId)
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        if (isMissingSchemaError(error)) return [];
+        console.error(error);
+        throw error;
+    }
+    return (data || []).map(mapEntrySource);
+}
+
+export async function getEntrySourcesForEntries(entryIds) {
+    if (!entryIds || entryIds.length === 0) return {};
+    const uniqueIds = [...new Set(entryIds.filter(Boolean))];
+
+    const { data, error } = await supabase
+        .from('entry_sources')
+        .select('*, sources(*)')
+        .in('entry_id', uniqueIds)
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        if (isMissingSchemaError(error)) return {};
+        console.error(error);
+        throw error;
+    }
+
+    const map = {};
+    for (const row of data || []) {
+        if (!map[row.entry_id]) map[row.entry_id] = [];
+        map[row.entry_id].push(mapEntrySource(row));
+    }
+    return map;
+}
+
+export async function linkEntryToSource(entryId, sourceId, { pageOrSection, quote } = {}) {
+    const { data, error } = await supabase
+        .from('entry_sources')
+        .insert({
+            entry_id: entryId,
+            source_id: sourceId,
+            page_or_section: (pageOrSection || '').trim() || null,
+            quote: (quote || '').trim() || null
+        })
+        .select('*, sources(*)')
+        .single();
+
+    if (error) { console.error(error); throw error; }
+    return mapEntrySource(data);
+}
+
+export async function unlinkEntryFromSource(entrySourceId) {
+    const { error } = await supabase
+        .from('entry_sources')
+        .delete()
+        .eq('id', entrySourceId);
+
+    if (error) { console.error(error); throw error; }
+    return true;
+}
+
+export { SOURCE_TYPE_ICONS };
+
 // ── Places ────────────────────────────────────────────────
 
 export async function createPlace({ projectId, name, description, lat, lng, category, createdBy = null }) {

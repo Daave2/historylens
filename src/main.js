@@ -24,7 +24,8 @@ import {
   submitEntrySuggestion,
   submitPlaceMoveSuggestion,
   submitPlaceNameSuggestion,
-  addPlaceNameAlias
+  addPlaceNameAlias,
+  linkEntryToSource
 } from './data/store.js';
 import { generatePlaceOverview } from './ai/ai.js';
 
@@ -925,6 +926,14 @@ async function initProjectView(project) {
                   });
                 } catch (err) {
                   throw new Error(err?.message ? `Image upload failed: ${err.message}` : 'Image upload failed.');
+                }
+              }
+              // Link structured source if selected
+              if (data.linkedSourceId && savedEntry?.id) {
+                try {
+                  await linkEntryToSource(savedEntry.id, data.linkedSourceId);
+                } catch (linkErr) {
+                  console.warn('Could not link source to entry:', linkErr);
                 }
               }
               showToast('Entry added', 'success');

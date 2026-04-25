@@ -25,20 +25,26 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - Render saved research lead links as timeline chips while hiding the stored URL trail from the main entry summary.
 - Added the Phase 24 collaboration/scale foundation migration with review queue metadata, access audit events, scale indexes, and tuned RLS helpers.
 - Added bounded review queue/store helpers, access activity rendering, priority/reviewer assignment controls, and `npm run smoke:collab-scale`.
+- Added Phase 25 rich moderation diff previews showing type-specific field breakdowns for place, entry, move, and historical-name submissions.
+- Created `supabase/phase25_sources.sql` with `sources` and `entry_sources` tables for structured citation tracking.
+- Added store CRUD for sources and entry_sources with graceful degradation when tables are missing.
+- Integrated source citation chips into timeline entries in PlaceDetail.
+- Added "Cite a structured source" section to EntryForm with search, selection, and inline creation.
 
 ## Remaining
 
 1. Apply `supabase/phase23_comment_policy_alignment.sql` to the live Supabase project.
 2. Apply `supabase/phase24_collab_scale_foundation.sql` to the live Supabase project.
-3. Configure smoke-test accounts locally or in CI:
+3. Apply `supabase/phase25_sources.sql` to the live Supabase project.
+4. Configure smoke-test accounts locally or in CI:
    - `HISTORYLENS_SMOKE_OWNER_EMAIL`
    - `HISTORYLENS_SMOKE_OWNER_PASSWORD`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_EMAIL`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
    - optional `HISTORYLENS_SMOKE_PROJECT_ID`
-4. Run the full authenticated moderation smoke test after those accounts exist.
-5. Re-check map/sidebar performance with a larger production-like dataset.
-6. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
+5. Run the full authenticated moderation smoke test after those accounts exist.
+6. Re-check map/sidebar performance with a larger production-like dataset.
+7. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
 
 ## Current Verification
 

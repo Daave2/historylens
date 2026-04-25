@@ -19,7 +19,8 @@ import {
   getImageVoteSummary,
   voteImage,
   setPlacePinnedImage,
-  getPlaceLocationHistory
+  getPlaceLocationHistory,
+  getEntrySourcesForEntries
 } from '../data/store.js';
 import { escapeAttr, escapeHtml, safeUrl } from '../utils/sanitize.js';
 import { extractResearchLinksFromSummary } from '../utils/researchLinks.js';
@@ -78,6 +79,7 @@ export default class PlaceDetail {
       }
     }
     const voteSummary = allImageIds.length > 0 ? await getImageVoteSummary(allImageIds) : {};
+    const entrySourceMap = await getEntrySourcesForEntries(entries.map(e => e.id));
 
     const historicalNames = (place.aliases || []).slice().sort((a, b) => {
       const aEnd = a.endYear ?? Infinity;
@@ -407,6 +409,7 @@ export default class PlaceDetail {
             </div>`
           : '';
         const sourceLabel = entry.source === SOURCE_RESEARCH_PROMPT ? 'Research lead' : entry.source;
+        const entrySources = entrySourceMap[entry.id] || [];
 
         // Attribution logic
         const profile = profiles[entry.createdBy];
@@ -427,6 +430,7 @@ export default class PlaceDetail {
               <span class="confidence-badge ${confClass}">${confClass}</span>
               ${sourceLabel ? `<span>· ${escapeHtml(sourceLabel)}</span>` : ''}
               <span>· Added by ${escapeHtml(authorDisplay)}</span>
+              ${renderEntrySourceChips(entrySources)}
               ${(!isReadOnly && (currentUserRole === 'owner' || currentUserRole === 'admin' || (currentUser && entry.createdBy === currentUser.id))) ? `
               <button class="icon-btn edit-entry-btn" data-entry-id="${escapeAttr(entry.id)}" title="Edit entry">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -1468,4 +1472,25 @@ function renderAliasInlineHistory(changes, profileLabel) {
       </div>
     </details>
   `;
+}
+
+function renderEntrySourceChips(entrySources) {
+  if (!entrySources || entrySources.length === 0) return '';
+
+  const chips = entrySources
+    .filter(es => es.source)
+    .map(es => {
+      const src = es.source;
+      const icon = src.icon || '📎';
+      const label = escapeHtml(src.title || 'Source');
+      const pageNote = es.pageOrSection ? ` · ${escapeHtml(es.pageOrSection)}` : '';
+
+      if (src.url) {
+        return `<a class="source-chip" href="${escapeAttr(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(src.title + (es.pageOrSection ? ' — ' + es.pageOrSection : ''))}"><span class="source-chip-icon">${icon}</span>${label}${pageNote}</a>`;
+      }
+      return `<span class="source-chip" title="${escapeAttr(src.title + (es.pageOrSection ? ' — ' + es.pageOrSection : ''))}"><span class="source-chip-icon">${icon}</span>${label}${pageNote}</span>`;
+    });
+
+  if (chips.length === 0) return '';
+  return `<div class="source-chips">${chips.join('')}</div>`;
 }

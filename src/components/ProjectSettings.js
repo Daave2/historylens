@@ -1,6 +1,6 @@
 import { requestAccess, getProjectRoles, getProjectRoleEvents, getAssignableReviewers, updateRole, removeRole, updateProject, banUser, wipeUserContributions, deleteProject, getReviewQueue, updateModerationQueueMeta, reviewModerationSubmission, getProfiles, getProjectInboxCounts } from '../data/store.js';
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
-import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
+import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType, renderModerationDiffPreview } from '../utils/moderation.js';
 
 export default class ProjectSettings {
     constructor() {
@@ -659,6 +659,10 @@ export default class ProjectSettings {
                         <div class="ps-submission-meta">
                           by ${escapeHtml(displayProfile(sub.submitterId))} · ${escapeHtml(new Date(sub.createdAt).toLocaleString())}
                         </div>
+                        <details class="mod-diff-details" ${isPending ? 'open' : ''}>
+                          <summary class="mod-diff-toggle">Details</summary>
+                          ${renderModerationDiffPreview(sub)}
+                        </details>
                         ${queueMeta}
                         ${reviewedMeta}
                         ${reviewerNote}

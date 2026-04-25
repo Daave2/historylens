@@ -1,4 +1,5 @@
 import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
+import { getProjectSources, createSource, SOURCE_TYPE_ICONS } from '../data/store.js';
 
 export default class EntryForm {
   constructor({ onSave, onCancel }) {
@@ -10,6 +11,8 @@ export default class EntryForm {
     this.editingEntry = null;
     this.pendingImages = []; // { file, preview }
     this.isSuggestionMode = false;
+    this.selectedSourceId = null;
+    this.projectSources = [];
 
     this.modal.querySelector('.modal-close').addEventListener('click', () => this.close());
     this.modal.addEventListener('click', (e) => {
@@ -21,6 +24,8 @@ export default class EntryForm {
     this.place = place;
     this.editingEntry = existingEntry;
     this.pendingImages = [];
+    this.selectedSourceId = null;
+    this.projectSources = [];
 
     const e = existingEntry || {};
     const isEdit = !!existingEntry;
@@ -114,6 +119,55 @@ export default class EntryForm {
             </select>
           </div>
         </div>
+
+        <div class="form-group" style="margin-top: var(--space-md);">
+          <button class="btn btn-ghost" id="ef-toggle-cite" style="margin-bottom: var(--space-sm);">
+            📚 Cite a structured source
+          </button>
+          <div id="ef-cite-section" style="display: none;">
+            <div class="source-form-inline">
+              <label class="form-label">Search existing sources or create new</label>
+              <input class="form-input" id="ef-source-search" type="text" placeholder="Type to search sources…" />
+              <div id="ef-source-results" class="source-search-results" style="display: none;"></div>
+              <div id="ef-source-selected" style="display: none; margin-top: var(--space-sm);"></div>
+              <details id="ef-source-new" style="margin-top: var(--space-sm);">
+                <summary style="cursor:pointer; color: var(--text-muted); font-size: var(--text-sm);">+ Create new source</summary>
+                <div style="margin-top: var(--space-sm);">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label class="form-label">Title</label>
+                      <input class="form-input" id="ef-new-source-title" type="text" placeholder="e.g. Blackpool Gazette" />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">URL (optional)</label>
+                      <input class="form-input" id="ef-new-source-url" type="text" placeholder="https://…" />
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label class="form-label">Type</label>
+                      <select class="form-select" id="ef-new-source-type">
+                        <option value="web">🌐 Web</option>
+                        <option value="archive">📚 Archive</option>
+                        <option value="newspaper">📰 Newspaper</option>
+                        <option value="book">📖 Book</option>
+                        <option value="oral">🗣️ Oral history</option>
+                        <option value="photo">📷 Photograph</option>
+                        <option value="map">🗺️ Map / Plan</option>
+                        <option value="other">📎 Other</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">Author (optional)</label>
+                      <input class="form-input" id="ef-new-source-author" type="text" placeholder="Author name" />
+                    </div>
+                  </div>
+                  <button class="btn btn-ghost" id="ef-create-source" style="margin-top: var(--space-sm);">Create & Link Source</button>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-xl);">
@@ -159,6 +213,113 @@ export default class EntryForm {
         this.handleFiles(e.dataTransfer.files);
       });
       fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
+    }
+
+    // Citation source section
+    const citeToggle = this.content.querySelector('#ef-toggle-cite');
+    const citeSection = this.content.querySelector('#ef-cite-section');
+    if (citeToggle && citeSection) {
+      citeToggle.addEventListener('click', async (evt) => {
+        evt.preventDefault();
+        const isOpen = citeSection.style.display !== 'none';
+        citeSection.style.display = isOpen ? 'none' : 'block';
+        citeToggle.textContent = isOpen ? '📚 Cite a structured source' : '📚 Hide structured sources';
+
+        if (!isOpen && this.projectSources.length === 0) {
+          try {
+            this.projectSources = await getProjectSources(place.projectId);
+          } catch (err) {
+            console.warn('Could not load project sources:', err);
+          }
+        }
+      });
+
+      const searchInput = this.content.querySelector('#ef-source-search');
+      const resultsEl = this.content.querySelector('#ef-source-results');
+      const selectedEl = this.content.querySelector('#ef-source-selected');
+
+      if (searchInput && resultsEl) {
+        searchInput.addEventListener('input', () => {
+          const query = (searchInput.value || '').toLowerCase().trim();
+          if (!query) {
+            resultsEl.style.display = 'none';
+            return;
+          }
+          const matches = this.projectSources.filter(s =>
+            s.title.toLowerCase().includes(query) ||
+            (s.author || '').toLowerCase().includes(query) ||
+            (s.url || '').toLowerCase().includes(query)
+          ).slice(0, 8);
+
+          if (matches.length === 0) {
+            resultsEl.innerHTML = '<div class="source-search-item" style="color: var(--text-muted);">No matching sources found.</div>';
+          } else {
+            resultsEl.innerHTML = matches.map(s =>
+              `<div class="source-search-item" data-source-id="${escapeAttr(s.id)}">${escapeHtml(s.icon)} ${escapeHtml(s.title)}${s.author ? ` — ${escapeHtml(s.author)}` : ''}</div>`
+            ).join('');
+          }
+          resultsEl.style.display = 'block';
+
+          resultsEl.querySelectorAll('.source-search-item[data-source-id]').forEach(item => {
+            item.addEventListener('click', () => {
+              const source = this.projectSources.find(s => s.id === item.dataset.sourceId);
+              if (source) {
+                this.selectedSourceId = source.id;
+                selectedEl.innerHTML = `<div class="source-chip"><span class="source-chip-icon">${source.icon}</span>${escapeHtml(source.title)}<span class="source-chip-unlink" id="ef-unlink-source" title="Remove">×</span></div>`;
+                selectedEl.style.display = 'block';
+                resultsEl.style.display = 'none';
+                searchInput.value = '';
+
+                selectedEl.querySelector('#ef-unlink-source')?.addEventListener('click', () => {
+                  this.selectedSourceId = null;
+                  selectedEl.style.display = 'none';
+                  selectedEl.innerHTML = '';
+                });
+              }
+            });
+          });
+        });
+      }
+
+      const createSourceBtn = this.content.querySelector('#ef-create-source');
+      if (createSourceBtn) {
+        createSourceBtn.addEventListener('click', async (evt) => {
+          evt.preventDefault();
+          const titleInput = this.content.querySelector('#ef-new-source-title');
+          const newTitle = (titleInput?.value || '').trim();
+          if (!newTitle) {
+            titleInput.style.borderColor = 'var(--danger)';
+            return;
+          }
+          createSourceBtn.disabled = true;
+          createSourceBtn.textContent = 'Creating…';
+          try {
+            const newSource = await createSource({
+              projectId: place.projectId,
+              title: newTitle,
+              url: this.content.querySelector('#ef-new-source-url')?.value || '',
+              sourceType: this.content.querySelector('#ef-new-source-type')?.value || 'web',
+              author: this.content.querySelector('#ef-new-source-author')?.value || ''
+            });
+            this.projectSources.push(newSource);
+            this.selectedSourceId = newSource.id;
+            selectedEl.innerHTML = `<div class="source-chip"><span class="source-chip-icon">${newSource.icon}</span>${escapeHtml(newSource.title)}<span class="source-chip-unlink" id="ef-unlink-source" title="Remove">×</span></div>`;
+            selectedEl.style.display = 'block';
+            this.content.querySelector('#ef-source-new').removeAttribute('open');
+
+            selectedEl.querySelector('#ef-unlink-source')?.addEventListener('click', () => {
+              this.selectedSourceId = null;
+              selectedEl.style.display = 'none';
+              selectedEl.innerHTML = '';
+            });
+          } catch (err) {
+            console.error('Failed to create source:', err);
+          } finally {
+            createSourceBtn.disabled = false;
+            createSourceBtn.textContent = 'Create & Link Source';
+          }
+        });
+      }
     }
 
     this.modal.style.display = 'flex';
@@ -244,7 +405,8 @@ export default class EntryForm {
         source,
         sourceType,
         confidence,
-        images: imageBlobs
+        images: imageBlobs,
+        linkedSourceId: this.selectedSourceId || null
       });
       this.close();
     } catch (err) {

@@ -141,6 +141,7 @@ In Supabase Dashboard -> Authentication -> URL Configuration:
   - `supabase/phase22_alias_history.sql`
   - `supabase/phase23_comment_policy_alignment.sql`
   - `supabase/phase24_collab_scale_foundation.sql`
+  - `supabase/phase25_sources.sql`
 - The older numbered phase files remain in the repo as historical migrations. For fresh installs, the files above are the current bootstrap path.
 - Deploy `supabase/functions/ai-proxy` and set `OPENAI_API_KEY` as a Supabase secret if using AI features.
 
