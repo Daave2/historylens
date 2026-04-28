@@ -9,6 +9,8 @@
  * 5. Area context & building age estimation
  */
 
+import { normalizePlaceCategory } from '../utils/category.js';
+
 const SOURCE_OSM = 'OpenStreetMap';
 const SOURCE_WIKIDATA = 'Wikidata';
 const SOURCE_WIKIPEDIA = 'Wikipedia';
@@ -634,7 +636,7 @@ export async function lookupPlaceInfo(lat, lng, customName = '', selectedResult 
     info.suggestedName = info.suggestedNames[0] || '';
 
     // Categories
-    info.suggestedCategories = detectCategory(geocode, nearby);
+    info.suggestedCategories = detectCategory(geocode, nearby, selectedSubject);
 
     // Build entries from direct OSM/Overpass evidence.
     info.autoEntries = buildAutoEntries(geocode, nearby, customName, selectedSubject);
@@ -762,22 +764,39 @@ function buildSeedEntry(geocode, customName = '', category = '') {
 
 // ── Helpers ───────────────────────────────────────────────
 
-function detectCategory(geocode, nearby) {
-    // Collect all raw types/amenities related to this location
-    const rawTypes = [
-        geocode.type,
-        geocode.category,
-        ...nearby.map(f => f.amenity),
-        ...nearby.map(f => f.building)
-    ];
+function detectCategory(geocode, nearby, selectedSubject = null) {
+    const subjects = [selectedSubject, geocode, ...(nearby || [])].filter(Boolean);
+    const categories = [];
 
-    const cleanTypes = rawTypes
-        .filter(t => t && typeof t === 'string' && t !== 'yes' && t.toLowerCase() !== 'unclassified')
-        .map(t => t.replace(/_/g, ' ')) // Convert guest_house to guest house
-        .map(t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()); // Title case
+    for (const subject of subjects) {
+        const rawParts = [
+            subject.category,
+            subject.type,
+            subject.amenity,
+            subject.shop,
+            subject.building,
+            subject.tourism,
+            subject.leisure,
+            subject.historic,
+            subject.heritage,
+            subject.manMade,
+            subject.man_made,
+            subject.office,
+            subject.highway,
+            ...Object.entries(subject.allTags || {})
+                .filter(([key]) => ['amenity', 'shop', 'building', 'tourism', 'leisure', 'historic', 'heritage', 'man_made', 'office', 'highway'].includes(key))
+                .flatMap(([key, value]) => [key, value])
+        ];
+        const rawText = rawParts
+            .filter(value => value && typeof value === 'string' && value !== 'yes' && value.toLowerCase() !== 'unclassified')
+            .join(' ');
+        if (!rawText.trim()) continue;
 
-    // Remove duplicates
-    return [...new Set(cleanTypes)].filter(t => t.length > 2);
+        const normalized = normalizePlaceCategory(rawText);
+        if (normalized && normalized !== 'other') categories.push(normalized);
+    }
+
+    return [...new Set(categories)];
 }
 
 function buildAutoEntries(geocode, nearby, customName = '', selectedSubject = null) {

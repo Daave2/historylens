@@ -1,5 +1,6 @@
 import { lookupPlaceInfo, searchAddress } from '../data/geocode.js';
 import { escapeAttr, escapeHtml, safeUrl } from '../utils/sanitize.js';
+import { PLACE_CATEGORY_ICONS, PLACE_CATEGORY_LABELS, STANDARD_PLACE_CATEGORIES, normalizePlaceCategory } from '../utils/category.js';
 
 export default class PlaceForm {
   constructor({ onSave, onCancel, onPickLocation, mapView }) {
@@ -254,14 +255,8 @@ export default class PlaceForm {
   }
 
   getCategoryIcon(result) {
-    const t = `${result.type} ${result.category}`.toLowerCase();
-    if (/house|residential|apartments/.test(t)) return '🏠';
-    if (/shop|commercial|retail|restaurant|cafe|pub|hotel/.test(t)) return '🏪';
-    if (/church|monument|historic|museum|castle/.test(t)) return '🏛️';
-    if (/park|garden|wood|water|natural/.test(t)) return '🌳';
-    if (/school|hospital|station|railway/.test(t)) return '🏗️';
-    if (/road|street|highway/.test(t)) return '📍';
-    return '📌';
+    const category = normalizePlaceCategory(`${result.type || ''} ${result.category || ''}`);
+    return PLACE_CATEGORY_ICONS[category] || '📌';
   }
 
   async selectSearchResult(result) {
@@ -339,37 +334,26 @@ export default class PlaceForm {
       hintEl.title = addr.fullAddress;
 
       // Category
-      // Rebuild the category dropdown with suggested options at the top
+      const suggestedCategories = [...new Set((info.suggestedCategories || [])
+        .map(normalizePlaceCategory)
+        .filter(cat => STANDARD_PLACE_CATEGORIES.includes(cat)))];
+      const orderedCategories = [
+        ...suggestedCategories,
+        ...STANDARD_PLACE_CATEGORIES.filter(cat => !suggestedCategories.includes(cat))
+      ];
       catSelect.innerHTML = '';
-      if (info.suggestedCategories && info.suggestedCategories.length > 0) {
-        info.suggestedCategories.forEach(cat => {
-          const opt = document.createElement('option');
-          opt.value = opt.textContent = cat;
-          catSelect.appendChild(opt);
-        });
+      orderedCategories.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = `${PLACE_CATEGORY_ICONS[cat]} ${PLACE_CATEGORY_LABELS[cat]}${suggestedCategories.includes(cat) ? ' (suggested)' : ''}`;
+        catSelect.appendChild(opt);
+      });
+      const otherOpt = document.createElement('option');
+      otherOpt.value = 'other';
+      otherOpt.textContent = 'Other...';
+      catSelect.appendChild(otherOpt);
 
-        // Add a separator
-        const sep = document.createElement('option');
-        sep.disabled = true;
-        sep.textContent = '──────────';
-        catSelect.appendChild(sep);
-      }
-
-      // Default options
-      catSelect.innerHTML += `
-        <option value="residential">🏠 Residential</option>
-        <option value="commercial">🏪 Commercial</option>
-        <option value="landmark">⭐ Landmark</option>
-        <option value="natural">🌳 Natural Feature</option>
-        <option value="infrastructure">🏗️ Infrastructure</option>
-        <option value="other">Other...</option>
-      `;
-
-      if (info.suggestedCategories && info.suggestedCategories.length > 0) {
-        catSelect.value = info.suggestedCategories[0];
-      } else {
-        catSelect.value = 'residential';
-      }
+      catSelect.value = suggestedCategories[0] || 'residential';
 
       // hide the custom input explicitly just in case
       this.content.querySelector('#pf-category-custom').style.display = 'none';

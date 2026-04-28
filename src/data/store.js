@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { normalizePlaceCategory } from '../utils/category.js';
 
 // If Supabase isn't available, the app will break gracefully (expected if misconfigured, but we know it's there)
 
@@ -201,23 +202,6 @@ function decodeStoragePath(storagePath) {
         bucket: storagePath.slice(0, sep),
         path: storagePath.slice(sep + 2)
     };
-}
-
-function normalizePlaceCategory(category) {
-    const raw = (category || '').toString().trim().toLowerCase();
-    if (!raw) return 'residential';
-
-    const standard = new Set(['residential', 'commercial', 'landmark', 'natural', 'infrastructure']);
-    if (standard.has(raw)) return raw;
-
-    if (/(guest|hotel|inn|pub|shop|store|market|cafe|restaurant|bar|commercial)/.test(raw)) return 'commercial';
-    if (/(church|chapel|museum|monument|historic|landmark|memorial|castle|heritage|tower|pier|theatre|cinema|ballroom|attraction)/.test(raw)) return 'landmark';
-    if (/(park|wood|forest|garden|river|lake|beach|natural|meadow|common|green)/.test(raw)) return 'natural';
-    if (/(station|rail|railway|bridge|road|school|hospital|infrastructure|transport|tram|bus)/.test(raw)) return 'infrastructure';
-    if (/(house|home|residential|flat|apartment|dwelling)/.test(raw)) return 'residential';
-
-    // Safe fallback for legacy DB constraints.
-    return 'residential';
 }
 
 // Helper for generating public URLs

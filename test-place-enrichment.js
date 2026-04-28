@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { normalizePlaceCategory } from './src/utils/category.js';
 
 const selectedResult = {
     lat: 53.815915,
@@ -139,6 +140,12 @@ const broadEstimate = entries.find((entry) => /Victorian resort|Blackpool develo
 
 assert.ok(info.suggestedNames.includes('Blackpool Tower'), 'selected search result name should survive reverse geocode');
 assert.ok(info.suggestedNames.includes('The Blackpool Tower'), 'Wikidata aliases should be suggested as names');
+assert.equal(info.suggestedCategories[0], 'landmark', 'selected landmark search result should drive the suggested category');
+assert.equal(normalizePlaceCategory('comercial'), 'commercial', 'common commercial misspelling should not fall back to residential');
+assert.equal(normalizePlaceCategory('retail shop'), 'commercial', 'retail/shop categories should save as commercial');
+assert.equal(normalizePlaceCategory('leisure miniature_golf'), 'commercial', 'commercial leisure venues should save as commercial');
+assert.equal(normalizePlaceCategory('highway residential'), 'infrastructure', 'residential road OSM tags should save as infrastructure');
+assert.equal(normalizePlaceCategory('unknown niche category'), 'other', 'unknown explicit categories should not silently become residential');
 assert.ok(wikidataEntry, 'Wikidata inception entry should be produced');
 assert.equal(wikidataEntry.preselected, true, 'dated Wikidata evidence should be preselected');
 assert.notEqual(wikidataEntry.saveable, false, 'dated Wikidata evidence should be saveable');
