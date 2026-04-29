@@ -51,8 +51,12 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf
 
 assert.ok(sidebar.includes('btn-project-chat') && sidebar.includes('onProjectChat'), 'Sidebar should wire the project chat action');
 assert.ok(main.includes("import('./components/ProjectChat.js')") && main.includes('showProjectChat'), 'main should lazy-load and show ProjectChat');
+assert.ok(main.includes('project-chat-fab') && main.includes('collapseSidebarForMapAction'), 'main should expose floating chat and collapse the sidebar for map placement');
+assert.ok(main.includes('map-action-banner') && main.includes('hideMapActionBanner'), 'main should show a cancellable map placement banner');
 assert.ok(index.includes('btn-project-chat'), 'index should expose the Project Chat sidebar button');
 assert.ok(styles.includes('.project-chat-panel') && styles.includes('.project-chat-composer'), 'styles should include the Project Chat drawer');
+assert.ok(styles.includes('.project-chat-fab') && styles.includes('#sidebar-expand span'), 'styles should include the floating chat button and mobile sidebar affordance');
+assert.ok(styles.includes('.map-action-banner') && styles.includes('.map-action-active .project-chat-fab'), 'styles should include the map placement banner');
 assert.ok(readme.includes('supabase/phase27_project_chat.sql'), 'README setup should include Phase 27 migration');
 assert.ok(plan.includes('Phase 27 project chat'), 'next phase plan should mention project chat');
 assert.ok(pkg.scripts.verify.includes('smoke:project-chat'), 'npm run verify should include the project chat smoke test');

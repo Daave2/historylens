@@ -530,6 +530,9 @@ async function initProjectView(project) {
   let placeForm = null;
   let entryForm = null;
   let projectChat = null;
+  let projectChatFab = null;
+  let mapActionBanner = null;
+  let activeMapActionCancel = null;
   let mapView = null;
   let hoverCard = null;
   let timeSlider = null;
@@ -556,11 +559,13 @@ async function initProjectView(project) {
     permissions = getProjectPermissions(currentUserRole);
     if (sidebar) sidebar.setProject(currentProject, permissions, currentUserRole);
     if (projectChat?.isOpen) projectChat.updateContext({ currentUser, currentUserRole, permissions });
+    updateProjectChatFabState();
 
     if (closeDraftForms) {
       placeForm?.close();
       entryForm?.close();
       mapView?.setAddMode(false);
+      hideMapActionBanner();
     }
 
     await refreshOpenPlaceDetail();
@@ -667,6 +672,102 @@ async function initProjectView(project) {
     });
   };
 
+  const updateProjectChatFabState = () => {
+    if (!projectChatFab) return;
+    const chatState = permissions.canSubmit && currentUserRole !== 'banned' ? 'active' : 'read';
+    projectChatFab.dataset.state = chatState;
+    projectChatFab.title = chatState === 'active' ? 'Open live project chat' : 'Open project chat';
+  };
+
+  const ensureProjectChatFab = () => {
+    projectChatFab = document.getElementById('project-chat-fab');
+    if (!projectChatFab) {
+      projectChatFab = document.createElement('button');
+      projectChatFab.id = 'project-chat-fab';
+      projectChatFab.className = 'project-chat-fab glass-panel';
+      projectChatFab.type = 'button';
+      projectChatFab.setAttribute('aria-label', 'Open project chat');
+      projectChatFab.innerHTML = `
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+        </svg>
+        <span class="project-chat-fab-dot" aria-hidden="true"></span>
+      `;
+      projectChatFab.addEventListener('click', () => {
+        void showProjectChat();
+      });
+      document.getElementById('app')?.appendChild(projectChatFab);
+    }
+    updateProjectChatFabState();
+  };
+
+  const setSidebarCollapsed = (collapsed) => {
+    if (!sidebar?.el) return;
+    sidebar.el.classList.toggle('collapsed', collapsed);
+    requestAnimationFrame(() => mapView?.invalidateSize());
+  };
+
+  const collapseSidebarForMapAction = () => {
+    if (mobileSidebarQuery.matches) {
+      setSidebarCollapsed(true);
+    }
+  };
+
+  const ensureMapActionBanner = () => {
+    mapActionBanner = document.getElementById('map-action-banner');
+    if (!mapActionBanner) {
+      mapActionBanner = document.createElement('div');
+      mapActionBanner.id = 'map-action-banner';
+      mapActionBanner.className = 'map-action-banner glass-panel';
+      mapActionBanner.setAttribute('aria-live', 'polite');
+      mapActionBanner.style.display = 'none';
+      mapActionBanner.innerHTML = `
+        <div class="map-action-banner-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
+        </div>
+        <div class="map-action-banner-copy">
+          <strong data-map-action-title></strong>
+          <span data-map-action-detail></span>
+        </div>
+        <button class="btn btn-ghost map-action-banner-cancel" type="button" data-map-action-cancel>Cancel</button>
+      `;
+      mapActionBanner.querySelector('[data-map-action-cancel]')?.addEventListener('click', () => {
+        activeMapActionCancel?.();
+      });
+      document.getElementById('app')?.appendChild(mapActionBanner);
+    }
+    return mapActionBanner;
+  };
+
+  const showMapActionBanner = ({ title, detail = '', cancelLabel = 'Cancel', onCancel }) => {
+    const banner = ensureMapActionBanner();
+    const titleEl = banner.querySelector('[data-map-action-title]');
+    const detailEl = banner.querySelector('[data-map-action-detail]');
+    const cancelBtn = banner.querySelector('[data-map-action-cancel]');
+
+    if (titleEl) titleEl.textContent = title;
+    if (detailEl) {
+      detailEl.textContent = detail;
+      detailEl.style.display = detail ? 'block' : 'none';
+    }
+    if (cancelBtn) cancelBtn.textContent = cancelLabel;
+
+    activeMapActionCancel = typeof onCancel === 'function' ? onCancel : null;
+    banner.style.display = 'flex';
+    document.getElementById('app')?.classList.add('map-action-active');
+  };
+
+  function hideMapActionBanner() {
+    if (mapActionBanner) {
+      mapActionBanner.style.display = 'none';
+    }
+    activeMapActionCancel = null;
+    document.getElementById('app')?.classList.remove('map-action-active');
+  }
+
   // Map
   mapView = new MapView('map-container', {
     centre: project.centre,
@@ -675,6 +776,7 @@ async function initProjectView(project) {
       if (!permissions.canSubmit) return;
       const form = await ensurePlaceForm();
       mapView.setAddMode(false);
+      hideMapActionBanner();
       form.show(latlng, { suggestionMode: !permissions.canEditPublished });
     },
     onMarkerClick: (place) => {
@@ -708,10 +810,19 @@ async function initProjectView(project) {
   const startAddPlaceFlow = () => {
     if (!permissions.canSubmit) return false;
     mapView.setAddMode(true);
-    const actionLabel = permissions.canEditPublished
-      ? 'place a marker. You will fill in the details next'
-      : 'mark the place you want to suggest for review';
-    showToast(`Click on the map to ${actionLabel}`, 'info');
+    collapseSidebarForMapAction();
+    const title = permissions.canEditPublished
+      ? 'Tap the map to place this'
+      : 'Tap the map to suggest a place';
+    showMapActionBanner({
+      title,
+      detail: 'Pan or zoom first if you need a better position.',
+      onCancel: () => {
+        mapView.setAddMode(false);
+        hideMapActionBanner();
+        showToast('Place marker cancelled.', 'info');
+      }
+    });
     return true;
   };
 
@@ -800,11 +911,12 @@ async function initProjectView(project) {
             }
 
             mapView.setAddMode(true);
-            showToast('Click on the map to pick the corrected location. Press Esc to cancel.', 'info');
+            collapseSidebarForMapAction();
 
             const cleanup = (pickedLatLng) => {
               mapView.onMapClick = previousOnMapClick;
               mapView.setAddMode(previousAddMode);
+              hideMapActionBanner();
               document.removeEventListener('keydown', onKeyDown);
               resolve(pickedLatLng);
             };
@@ -821,6 +933,15 @@ async function initProjectView(project) {
               cleanup({ lat: latlng.lat, lng: latlng.lng });
               showToast(`Picked ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`, 'success');
             };
+
+            showMapActionBanner({
+              title: 'Tap the map to pick the corrected location',
+              detail: 'Use Cancel or press Esc to stop.',
+              onCancel: () => {
+                cleanup(null);
+                showToast('Location pick cancelled.', 'info');
+              }
+            });
           });
         },
         onClose: () => {
@@ -1114,6 +1235,7 @@ async function initProjectView(project) {
   mapView.map.on('moveend', () => queueSnapshotRefresh());
 
   sidebar.setProject(project, permissions, currentUserRole);
+  ensureProjectChatFab();
   await loadProjectSnapshot({ updateRange: true });
   projectAuthStateHandler = async () => {
     await syncProjectAccessState({ closeDraftForms: true });
@@ -1142,16 +1264,11 @@ async function initProjectView(project) {
     }
   });
 
-  let hasAutoCollapsedSidebar = false;
   const applyResponsiveSidebar = (queryEvent) => {
     const isMobile = queryEvent?.matches ?? mobileSidebarQuery.matches;
 
-    if (isMobile && !hasAutoCollapsedSidebar) {
-      sidebar.el.classList.add('collapsed');
-      hasAutoCollapsedSidebar = true;
-    } else if (!isMobile) {
+    if (!isMobile) {
       sidebar.el.classList.remove('collapsed');
-      hasAutoCollapsedSidebar = false;
     }
 
     requestAnimationFrame(() => mapView.invalidateSize());
@@ -1190,8 +1307,9 @@ async function initProjectView(project) {
     const expandBtn = document.createElement('button');
     expandBtn.id = 'sidebar-expand';
     expandBtn.className = 'icon-btn glass-panel';
-    expandBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
-    expandBtn.addEventListener('click', () => sidebar.toggle());
+    expandBtn.setAttribute('aria-label', 'Show places and project tools');
+    expandBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg><span>Places</span>';
+    expandBtn.addEventListener('click', () => setSidebarCollapsed(false));
     document.getElementById('app').appendChild(expandBtn);
   }
 
