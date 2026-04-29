@@ -3,7 +3,7 @@ import { escapeHtml, escapeAttr } from '../utils/sanitize.js';
 import { formatModerationStatusLabel, formatModerationSubmissionSummary, formatModerationSubmissionType } from '../utils/moderation.js';
 
 export default class Sidebar {
-    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange, onQueryChange, onLoadMore }) {
+    constructor({ onPlaceClick, onAddPlace, onImport, onExport, onGuide, onProjectChat, onProjectEdit, onProjectSettings, onRequestAccess, onFilterChange, onQueryChange, onLoadMore }) {
         this.el = document.getElementById('sidebar');
         this.listEl = document.getElementById('place-list');
         this.countEl = document.getElementById('place-count');
@@ -15,6 +15,7 @@ export default class Sidebar {
         this.guideCardEl = document.getElementById('sidebar-guide-card');
         this.addBtn = document.getElementById('btn-add-place');
         this.guideBtn = document.getElementById('btn-guide');
+        this.chatBtn = document.getElementById('btn-project-chat');
         this.importBtn = document.getElementById('btn-import');
         this.exportBtn = document.getElementById('btn-export');
         this.settingsBtn = document.getElementById('btn-project-settings');
@@ -31,6 +32,7 @@ export default class Sidebar {
         this.onPlaceClick = onPlaceClick;
         this.onAddPlace = onAddPlace;
         this.onGuide = onGuide;
+        this.onProjectChat = onProjectChat;
         this.onProjectEdit = onProjectEdit;
         this.onRequestAccess = onRequestAccess;
         this.onFilterChange = onFilterChange;
@@ -54,6 +56,7 @@ export default class Sidebar {
         this.toggleBtn.addEventListener('click', () => this.toggle());
         this.addBtn.addEventListener('click', () => onAddPlace?.());
         if (this.guideBtn) this.guideBtn.addEventListener('click', () => onGuide?.());
+        if (this.chatBtn) this.chatBtn.addEventListener('click', () => onProjectChat?.());
         this.importBtn.addEventListener('click', () => onImport?.());
         this.exportBtn.addEventListener('click', () => onExport?.());
         if (this.settingsBtn) this.settingsBtn.addEventListener('click', () => {
@@ -128,6 +131,15 @@ export default class Sidebar {
 
         if (this.importBtn) {
             this.importBtn.parentElement.style.display = this.canEditPublished ? 'flex' : 'none';
+        }
+
+        if (this.chatBtn) {
+            this.chatBtn.style.display = 'flex';
+            const chatState = this.canSubmit && currentUserRole !== 'banned' ? 'active' : 'read';
+            this.chatBtn.dataset.state = chatState;
+            this.chatBtn.title = chatState === 'active'
+                ? 'Open live project chat'
+                : 'Open project chat';
         }
 
         // Collaboration Buttons

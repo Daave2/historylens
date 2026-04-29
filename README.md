@@ -143,9 +143,11 @@ In Supabase Dashboard -> Authentication -> URL Configuration:
   - `supabase/phase24_collab_scale_foundation.sql`
   - `supabase/phase25_sources.sql`
   - `supabase/phase26_scale_read_path.sql`
+  - `supabase/phase27_project_chat.sql`
 - The older numbered phase files remain in the repo as historical migrations. For fresh installs, the files above are the current bootstrap path.
 - Phase 25 also refreshes the moderation review RPC so approved entry suggestions preserve selected structured citations.
 - Phase 26 adds bounded map snapshot, year-bound, and place-detail bundle RPCs for large-project read paths.
+- Phase 27 adds project-level live chat with realtime delivery when Supabase Realtime is enabled.
 - Deploy `supabase/functions/ai-proxy` and set `OPENAI_API_KEY` as a Supabase secret if using AI features.
 
 ## Repository Structure

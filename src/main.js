@@ -529,6 +529,7 @@ async function initProjectView(project) {
   let placeDetail = null;
   let placeForm = null;
   let entryForm = null;
+  let projectChat = null;
   let mapView = null;
   let hoverCard = null;
   let timeSlider = null;
@@ -554,6 +555,7 @@ async function initProjectView(project) {
       : nextRole;
     permissions = getProjectPermissions(currentUserRole);
     if (sidebar) sidebar.setProject(currentProject, permissions, currentUserRole);
+    if (projectChat?.isOpen) projectChat.updateContext({ currentUser, currentUserRole, permissions });
 
     if (closeDraftForms) {
       placeForm?.close();
@@ -643,6 +645,26 @@ async function initProjectView(project) {
     }
 
     await openRequestAccessDialog();
+  };
+
+  const ensureProjectChat = async () => {
+    if (!projectChat) {
+      const { default: ProjectChat } = await loadComponentModule('ProjectChat', () => import('./components/ProjectChat.js'));
+      projectChat = new ProjectChat({
+        onAuthRequest: requestProjectAccess,
+        onError: (message) => showToast(message, 'error')
+      });
+    }
+    return projectChat;
+  };
+
+  const showProjectChat = async () => {
+    const chat = await ensureProjectChat();
+    await chat.show(currentProject, {
+      currentUser,
+      currentUserRole,
+      permissions
+    });
   };
 
   // Map
@@ -1054,6 +1076,9 @@ async function initProjectView(project) {
       });
     },
     onRequestAccess: requestProjectAccess,
+    onProjectChat: () => {
+      void showProjectChat();
+    },
     onGuide: async () => {
       const modal = await ensureGuideModal();
       modal.showProject({

@@ -268,7 +268,8 @@ Current status (Phase 26):
 - ✅ Sidebar/map loading now refreshes from bounded viewport snapshots on map movement, search/category changes, and year changes.
 - ✅ Place detail now hydrates through the bundled read helper instead of separate entry/image/comment/history/source calls.
 - ✅ `npm run smoke:scale-read` covers the Phase 26 read-path wiring.
-- Remaining: paginated review queue RPC, export batching, sidebar virtualization, and performance-test with generated large projects.
+- ✅ Phase 27 project chat adds a realtime-backed project chat drawer for meeting notes, shared leads, and quick coordination.
+- Remaining: apply Phase 27 live, paginated review queue RPC, export batching, sidebar virtualization, and performance-test with generated large projects.
 
 ## Watchpoints
 

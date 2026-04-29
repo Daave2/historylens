@@ -35,6 +35,7 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - Added the Phase 26 read-path foundation with bounded map snapshot/year-bound RPCs, store wrappers, sidebar/map snapshot loading, and `npm run smoke:scale-read`.
 - Added cursor "load more" handling for bounded map/sidebar snapshots.
 - Added a bundled place-detail read RPC and switched PlaceDetail to hydrate from it with a pre-migration fallback.
+- Added Phase 27 project chat with a realtime Supabase table, RLS policies, sidebar drawer UI, and `npm run smoke:project-chat`.
 
 ## Remaining
 
@@ -42,16 +43,17 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 2. Apply `supabase/phase24_collab_scale_foundation.sql` to the live Supabase project.
 3. Apply `supabase/phase25_sources.sql` to the live Supabase project.
 4. Apply `supabase/phase26_scale_read_path.sql` to the live Supabase project.
-5. Configure smoke-test accounts locally or in CI:
+5. Apply `supabase/phase27_project_chat.sql` to the live Supabase project.
+6. Configure smoke-test accounts locally or in CI:
    - `HISTORYLENS_SMOKE_OWNER_EMAIL`
    - `HISTORYLENS_SMOKE_OWNER_PASSWORD`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_EMAIL`
    - `HISTORYLENS_SMOKE_CONTRIBUTOR_PASSWORD`
    - optional `HISTORYLENS_SMOKE_PROJECT_ID`
-6. Run the full authenticated moderation smoke test after those accounts exist.
-7. Add a paginated review queue RPC so moderation screens can scale beyond the current client-side queue slice.
-8. Re-check map/sidebar performance with a larger production-like dataset.
-9. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
+7. Run the full authenticated moderation smoke test after those accounts exist.
+8. Add a paginated review queue RPC so moderation screens can scale beyond the current client-side queue slice.
+9. Re-check map/sidebar performance with a larger production-like dataset.
+10. Run a browser offline/auth pass before enabling `VITE_ENABLE_SERVICE_WORKER` in production.
 
 ## Current Verification
 
@@ -62,6 +64,7 @@ This pass moved HistoryLens out of the "inventory the risks" stage and into a mo
 - `npm run smoke:collab-scale` passes static checks for the Phase 24 collaboration/scale foundation.
 - `npm run smoke:citations` passes static checks for structured citation hardening.
 - `npm run smoke:scale-read` passes static checks for the Phase 26 bounded read-path foundation, cursor loading, place-detail bundling, and sidebar/map snapshot wiring.
+- `npm run smoke:project-chat` passes static checks for the Phase 27 project chat migration, store helpers, sidebar action, drawer UI, and verification wiring.
 - `npm run smoke:moderation` exits successfully and reports a skip unless smoke account credentials are configured.
 - `npm run seed:demo` is available for authenticated demo data seeding.
 - `npm audit --audit-level=moderate` reports 0 vulnerabilities.

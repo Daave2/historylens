@@ -146,6 +146,24 @@ const mapProjectRoleEvent = (row) => ({
     createdAt: new Date(row.created_at)
 });
 
+const mapProjectChatMessage = (row, profiles = {}) => {
+    const profile = profiles[row.user_id] || {};
+    const displayName = profile.display_name || (profile.email ? profile.email.split('@')[0] : 'Community member');
+
+    return {
+        id: row.id,
+        projectId: row.project_id,
+        userId: row.user_id,
+        body: row.body || '',
+        createdAt: new Date(row.created_at),
+        profile: {
+            email: profile.email || '',
+            displayName,
+            avatarUrl: profile.avatar_url || null
+        }
+    };
+};
+
 function mapProfileRows(rows = []) {
     const map = {};
     (rows || []).forEach(p => {
@@ -1811,7 +1829,101 @@ export async function restoreOverviewRevision(revisionId) {
     return updatedPlace;
 }
 
-// ── Comments ────────────────────────────────────────────────
+// ── Project Chat & Comments ─────────────────────────────────
+
+export async function getProjectChatMessages(projectId, { limit = 50 } = {}) {
+    const safeLimit = Math.min(Math.max(safeInt(limit, 50), 1), 100);
+    const { data, error } = await supabase
+        .from('project_chat_messages')
+        .select('id, project_id, user_id, body, created_at')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(safeLimit);
+
+    if (error) {
+        if (isMissingSchemaError(error)) {
+            return { items: [], schemaReady: false };
+        }
+        console.error('Error fetching project chat messages:', error);
+        throw error;
+    }
+
+    const rows = (data || []).slice().reverse();
+    const profiles = await getProfiles(rows.map(row => row.user_id));
+    return {
+        items: rows.map(row => mapProjectChatMessage(row, profiles)),
+        schemaReady: true
+    };
+}
+
+export async function sendProjectChatMessage(projectId, body) {
+    const messageBody = String(body || '').trim();
+    if (!messageBody) throw new Error('Message cannot be empty.');
+    if (messageBody.length > 1200) throw new Error('Message is too long.');
+
+    const session = await getSession();
+    if (!session) throw new Error('You need to sign in before joining project chat.');
+
+    const { data, error } = await supabase
+        .from('project_chat_messages')
+        .insert({
+            project_id: projectId,
+            user_id: session.user.id,
+            body: messageBody
+        })
+        .select('id, project_id, user_id, body, created_at')
+        .single();
+
+    if (error) {
+        if (isMissingSchemaError(error)) {
+            throw new Error('Project chat is not set up yet. Apply supabase/phase27_project_chat.sql.');
+        }
+        console.error('Error sending project chat message:', error);
+        throw error;
+    }
+
+    const profiles = await getProfiles([data.user_id]);
+    return mapProjectChatMessage(data, profiles);
+}
+
+export function subscribeToProjectChat(projectId, onMessage, onError) {
+    if (!projectId || !supabase?.channel) return () => {};
+
+    const channel = supabase
+        .channel(`project-chat:${projectId}`)
+        .on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'project_chat_messages',
+                filter: `project_id=eq.${projectId}`
+            },
+            async (payload) => {
+                try {
+                    const row = payload?.new;
+                    if (!row?.id) return;
+                    const profiles = await getProfiles([row.user_id]);
+                    onMessage?.(mapProjectChatMessage(row, profiles));
+                } catch (err) {
+                    onError?.(err);
+                }
+            }
+        )
+        .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                onError?.(new Error('Project chat live updates are unavailable right now.'));
+            }
+        });
+
+    return () => {
+        try {
+            supabase.removeChannel(channel);
+        } catch (err) {
+            console.warn('Could not remove project chat channel:', err);
+        }
+    };
+}
 
 export async function getComments(placeId) {
     const { data, error } = await supabase
